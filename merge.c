@@ -26,6 +26,7 @@ typedef struct RGBColor_t{
 }RGBColor;
 
 typedef struct Decoder_t{
+    int id;
     AVCodecContext *c;
     int frame_count;
     FILE *f;
@@ -36,13 +37,12 @@ typedef struct Decoder_t{
 }Decoder;
 
 static void init_decoder(Decoder *dcrs, int number, AVCodec *codec){
-    int i;
     dcrs[0].filename="color0.mpg";
     dcrs[1].filename="depth0.mpg";
     dcrs[2].filename="color1.mpg";
     dcrs[3].filename="depth1.mpg";
-
-    for(i=0;i<number; i++){
+    for(int i=0;i<number; i++){
+        dcrs[i].id=i;
         av_init_packet(&dcrs[i].avpkt);
         memset(dcrs[i].inbuf + INBUF_SIZE, 0, FF_INPUT_BUFFER_PADDING_SIZE);
         
@@ -183,8 +183,6 @@ void render(AVFrame *colorFrame, AVFrame *depthFrame){
     glDisableClientState(GL_COLOR_ARRAY);
 }
 
-
-
 static int decode_frame(Decoder *decoder, int last){
     int len, got_frame;
     len = avcodec_decode_video2(decoder->c, decoder->frame, &got_frame, &decoder->avpkt);
@@ -193,7 +191,8 @@ static int decode_frame(Decoder *decoder, int last){
         return len;
     }
     if (got_frame) {
-        printf("Saving %sframe %3d\n", last ? "last " : "", decoder->frame_count);
+        // printf("Saving %sframe %3d\n", last ? "last " : "", decoder->frame_count);
+        printf("decoder-%d gets %d's frame \n", decoder->id, decoder->frame_count);
         fflush(stdout);
         /* the picture is allocated by the decoder, no need to free it */
         // snprintf(buf, sizeof(buf), outfilename, *frame_count);
@@ -222,12 +221,13 @@ static void decode_video(Decoder *dcrs, int number)
         int i;
         for(i=0; i<number; i++){
             dcrs[i].avpkt.size = fread(dcrs[i].inbuf, 1, INBUF_SIZE, dcrs[i].f);
-            if(dcrs[i].avpkt.size==0){
-                break;
-            }
+            // if(dcrs[i].avpkt.size==0){
+            //     break;
+            // }
         }
-        break;
-
+        if(dcrs[0].avpkt.size==0 && dcrs[1].avpkt.size==0 && dcrs[2].avpkt.size==0 && dcrs[3].avpkt.size==0){
+            break;
+        }
         /* NOTE1: some codecs are stream based (mpegvideo, mpegaudio)
            and this is the only method to use them because you cannot
            know the compressed data size before analysing it.
@@ -243,13 +243,14 @@ static void decode_video(Decoder *dcrs, int number)
         for(i=0; i<number; i++){
             dcrs[i].avpkt.data = dcrs[i].inbuf;
             while (dcrs[i].avpkt.size > 0){
+                // printf("%d has decoded %d \n", i, dcrs[i].avpkt.size );
                 if (decode_frame(&dcrs[i], 0) < 0){
                     fprintf(stderr, "something wrong happens with the decoding\n");
                     exit(1);                    
                 }
             }           
         }
-
+        // printf("%d\n", dcrs[0].frame_count);
         //after decoding the frame, render the data:
         render(dcrs[0].frame, dcrs[1].frame);
     }

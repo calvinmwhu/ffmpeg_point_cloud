@@ -2,3 +2,6 @@
 opengl
 temp
 *.mpg
+result
+merge.o
+merge
