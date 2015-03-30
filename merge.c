@@ -1,4 +1,7 @@
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include <limits.h>
 #include <libavutil/opt.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
@@ -20,6 +23,13 @@ GLuint vboId; // Vertex buffer ID
 GLuint cboId; // Color buffer ID
 GLuint *framebuffer;
 GLuint *framebuffer;
+AVFrame **frames;
+int total_frames ;
+float colorarray0[WIDTH*HEIGHT*3];
+float vertexarray0[WIDTH*HEIGHT*3];
+float colorarray1[WIDTH*HEIGHT*3];
+float vertexarray1[WIDTH*HEIGHT*3];
+
 
 typedef struct RGBColor_t{
     uint8_t r;
@@ -29,6 +39,7 @@ typedef struct RGBColor_t{
 
 typedef struct Decoder_t{
     int id;
+    AVCodec *codec;
     AVCodecContext *c;
     int frame_count;
     FILE *f;
@@ -49,25 +60,31 @@ typedef struct Encoder_t{
     uint8_t endcode[] ;
 }Encoder;
 
-static void init_decoder(Decoder *dcrs, int number, AVCodec *codec){
+static void init_decoder(Decoder *dcrs, int number ){
     dcrs[0].filename="color0.mpg";
     dcrs[1].filename="depth0.mpg";
     dcrs[2].filename="color1.mpg";
     dcrs[3].filename="depth1.mpg";
     for(int i=0;i<number; i++){
         dcrs[i].id=i;
+        /* find the mpeg1 video decoder */
+        dcrs[i].codec = avcodec_find_decoder(AV_CODEC_ID_MPEG1VIDEO);
+        if (!dcrs[i].codec) {
+            fprintf(stderr, "Codec not found\n");
+            exit(1);
+        }
         av_init_packet(&dcrs[i].avpkt);
         memset(dcrs[i].inbuf + INBUF_SIZE, 0, FF_INPUT_BUFFER_PADDING_SIZE);
         
-        dcrs[i].c = avcodec_alloc_context3(codec);
+        dcrs[i].c = avcodec_alloc_context3(dcrs[i].codec);
         if (!dcrs[i].c) {
             fprintf(stderr, "Could not allocate video codec context\n");
             exit(1);
         }
-        if(codec->capabilities&CODEC_CAP_TRUNCATED){
+        if(dcrs[i].codec->capabilities&CODEC_CAP_TRUNCATED){
             dcrs[i].c->flags|= CODEC_FLAG_TRUNCATED; 
         }
-        if (avcodec_open2(dcrs[i].c, codec, NULL) < 0) {
+        if (avcodec_open2(dcrs[i].c, dcrs[i].codec, NULL) < 0) {
             fprintf(stderr, "Could not open codec\n");
             exit(1);
         }
@@ -168,6 +185,7 @@ static void getFrameColorData(GLubyte* dest, AVFrame *frame){
             *fdest++ = pixel.r;
             *fdest++ = pixel.g;
             *fdest++ = pixel.b;
+            // printf("%f, %f, %f\n", *(fdest-3), *(fdest-2), *(fdest-1) );
         }
     }
 }
@@ -184,6 +202,7 @@ static void getFrameCoordinateData(GLubyte* dest, AVFrame *frame){
             *fdest++ = (float)y;
             uint8_t Y = frame->data[0][frame->linesize[0]*y+x];
             *fdest++ = Y/255.f;
+            // printf("%f, %f, %f\n", *(fdest-3), *(fdest-2), *(fdest-1) );
         }
     }
 }
@@ -206,15 +225,23 @@ void setUpOpenGL(){
     gluLookAt(0,0,0,0,0,1,0,1,0);
 }
 
-void getDataForFrame(AVFrame *colorFrame, AVFrame *depthFrame){
-    const int dataSize = WIDTH*HEIGHT*3*sizeof(float);
+void getDataForFrame_old(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
+    getFrameCoordinateData((GLubyte*)vertexarray0, depthFrame0);
+    getFrameCoordinateData((GLubyte*)vertexarray1, depthFrame1);
+    getFrameColorData((GLubyte*)colorarray0, colorFrame0);
+    getFrameColorData((GLubyte*)colorarray1, colorFrame1);
+}
+
+void getDataForFrame(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
+    const int dataSize = WIDTH*HEIGHT*6*sizeof(float);
     GLubyte* ptr;
     glBindBuffer(GL_ARRAY_BUFFER, vboId);
     glBufferData(GL_ARRAY_BUFFER, dataSize, 0, GL_DYNAMIC_DRAW);
     ptr = (GLubyte*) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     //get coordinate data
     if(ptr){
-        getFrameCoordinateData(ptr, depthFrame);
+        getFrameCoordinateData(ptr, depthFrame0);
+        getFrameCoordinateData(ptr, depthFrame1);   
     }else{
         fprintf(stderr, "Failed to get a point to coordinate data\n");
     }
@@ -225,15 +252,17 @@ void getDataForFrame(AVFrame *colorFrame, AVFrame *depthFrame){
     ptr = (GLubyte*) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     //get color data:
     if(ptr){
-        getFrameColorData(ptr, colorFrame);
+        getFrameColorData(ptr, colorFrame0);
+        getFrameColorData(ptr, colorFrame1);
     }else{
         fprintf(stderr, "Failed to get a point to rgb data\n");
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
 }
 
-static GLubyte* render(AVFrame *colorFrame, AVFrame *depthFrame){    
-    getDataForFrame(colorFrame, depthFrame);
+
+static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){    
+    getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
@@ -256,6 +285,40 @@ static GLubyte* render(AVFrame *colorFrame, AVFrame *depthFrame){
     return data;
 }
 
+static GLubyte* render_old(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
+    getDataForFrame_old(colorFrame0, depthFrame0, colorFrame1, depthFrame1);
+    glClear (GL_COLOR_BUFFER_BIT);
+    glBegin(GL_POINTS);
+    for (int i = 0; i < WIDTH*HEIGHT; ++i) {
+        glColor3f(colorarray0[i*3], colorarray0[i*3+1], colorarray0[i*3+2]);
+        glVertex3f(vertexarray0[i*3], vertexarray0[i*3+1], vertexarray0[i*3+2]);
+        glColor3f(colorarray1[i*3], colorarray1[i*3+1], colorarray1[i*3+2]);
+        glVertex3f(vertexarray1[i*3], vertexarray1[i*3+1], vertexarray1[i*3+2]);
+    }
+    glEnd();   
+    glFlush ();
+
+    GLubyte *data = malloc(3 * WIDTH * HEIGHT);
+    glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
+
+    return data;
+}
+
+
+static void render_scene(){
+    for(int i=0; i<total_frames; i++){
+        render(&frames[0][i], &frames[1][i], &frames[2][i], &frames[3][i]);
+    }
+}
+
+static void render_scene_old(){
+    for(int i=0; i<total_frames; i++){
+        render_old(&frames[0][i], &frames[1][i], &frames[2][i], &frames[3][i]);
+    }
+}
+
+
+
 static int decode_frame(Decoder *decoder, int last){
     int len, got_frame;
     len = avcodec_decode_video2(decoder->c, decoder->frame, &got_frame, &decoder->avpkt);
@@ -265,11 +328,12 @@ static int decode_frame(Decoder *decoder, int last){
     }
     if (got_frame) {
         // printf("Saving %sframe %3d\n", last ? "last " : "", decoder->frame_count);
-        // printf("decoder-%d gets %d's frame \n", decoder->id, decoder->frame_count);
+        printf("decoder-%d gets %d's frame \n", decoder->id, decoder->frame_count);
         fflush(stdout);
         /* the picture is allocated by the decoder, no need to free it */
         // snprintf(buf, sizeof(buf), outfilename, *frame_count);
         // write_data(frame, buf);
+        memcpy(&frames[decoder->id][decoder->frame_count], decoder->frame, sizeof(AVFrame));
         decoder->frame_count++;
     }
     if (decoder->avpkt.data) {
@@ -279,24 +343,12 @@ static int decode_frame(Decoder *decoder, int last){
     return 0;
 }
 
-static void decode_video(Decoder *dcrs, int number)
+static void decode_video_frame(Decoder *dcrs, int number)
 {
-    AVCodec *codec;
-    /* find the mpeg1 video decoder */
-    codec = avcodec_find_decoder(AV_CODEC_ID_MPEG1VIDEO);
-    if (!codec) {
-        fprintf(stderr, "Codec not found\n");
-        exit(1);
-    }
-    init_decoder(dcrs, number, codec);
-
     for (;;) {
         int i;
         for(i=0; i<number; i++){
             dcrs[i].avpkt.size = fread(dcrs[i].inbuf, 1, INBUF_SIZE, dcrs[i].f);
-            // if(dcrs[i].avpkt.size==0){
-            //     break;
-            // }
         }
         if(dcrs[0].avpkt.size==0 && dcrs[1].avpkt.size==0 && dcrs[2].avpkt.size==0 && dcrs[3].avpkt.size==0){
             break;
@@ -323,17 +375,7 @@ static void decode_video(Decoder *dcrs, int number)
                 }
             }           
         }
-        // printf("%d\n", dcrs[0].frame_count);
-        //after decoding the frame, render the data:
-        GLubyte* data0 = render(dcrs[0].frame, dcrs[1].frame);
-        GLubyte* data1 = render(dcrs[2].frame, dcrs[3].frame);
-
-        // FILE *write_file;
-        // write_file=fopen("myfile.pgm", "w");
-        // fwrite (data0, sizeof(GLubyte), 3*WIDTH*HEIGHT, write_file);
-        // fclose(write_file);
-
-
+        // GLubyte* data = render(dcrs[0].frame, dcrs[1].frame, dcrs[2].frame, dcrs[3].frame);
     }
     /* some codecs, such as MPEG, transmit the I and P frame with a
        latency of one frame. You must do the following to have a
@@ -349,34 +391,10 @@ static void decode_video(Decoder *dcrs, int number)
         av_frame_free(&dcrs[i].frame);
         printf("\n");
     }
-
-
 }
 
 static void encode_video(const char *filename, int codec_id, int frame_count){
    
-    // /* get the delayed frames */
-    // for (got_output = 1; got_output; i++) {
-    //     fflush(stdout);
-    //     ret = avcodec_encode_video2(c, &pkt, NULL, &got_output);
-    //     if (ret < 0) {
-    //         fprintf(stderr, "Error encoding frame\n");
-    //         exit(1);
-    //     }
-    //     if (got_output) {
-    //         printf("Write frame %3d (size=%5d)\n", i, pkt.size);
-    //         fwrite(pkt.data, 1, pkt.size, f);
-    //         av_free_packet(&pkt);
-    //     }
-    // }
-    // /* add sequence end code to have a real mpeg file */
-    // fwrite(endcode, 1, sizeof(endcode), f);
-    // fclose(f);
-    // avcodec_close(c);
-    // av_free(c);
-    // av_freep(&frame->data[0]);
-    // av_frame_free(&frame);
-    // printf("\n");
 }
 
 int main(int argc, char **argv)
@@ -390,9 +408,32 @@ int main(int argc, char **argv)
     avcodec_register_all();
     setUpOpenGL();
 
+    frames = (AVFrame**)malloc(4*sizeof(AVFrame*));
+    for(int i=0; i<4; i++){
+        frames[i]=(AVFrame*)malloc(30*sizeof(AVFrame));
+    }
+    total_frames=INT_MAX;
+
     Decoder *dcrs = (Decoder*)malloc(4*sizeof(Decoder));
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
-    decode_video(dcrs, 4);
+    init_decoder(dcrs, 4);
+    decode_video_frame(dcrs, 4);
+
+    if(total_frames>dcrs[0].frame_count){
+        total_frames=dcrs[0].frame_count;
+    }
+    if(total_frames>dcrs[1].frame_count){
+        total_frames=dcrs[1].frame_count;
+    }
+    if(total_frames>dcrs[2].frame_count){
+        total_frames=dcrs[2].frame_count;
+    }
+    if(total_frames>dcrs[3].frame_count){
+        total_frames=dcrs[3].frame_count;
+    }
+    // render_scene();
+    glutDisplayFunc(render_scene_old); 
+    glutMainLoop();
 
     return 0;
 }
