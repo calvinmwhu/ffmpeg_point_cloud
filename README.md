@@ -1,0 +1,1 @@
+An example of using ffmpeg to decode color and depth video into frames and merge the two streams into point clouds
