@@ -18,6 +18,8 @@
 
 GLuint vboId; // Vertex buffer ID
 GLuint cboId; // Color buffer ID
+GLuint *framebuffer;
+GLuint *framebuffer;
 
 typedef struct RGBColor_t{
     uint8_t r;
@@ -35,6 +37,17 @@ typedef struct Decoder_t{
     uint8_t inbuf[INBUF_SIZE + FF_INPUT_BUFFER_PADDING_SIZE];
     AVPacket avpkt;
 }Decoder;
+
+typedef struct Encoder_t{
+    AVCodec *codec;
+    AVCodecContext *c;
+    // int i, ret, x, y, got_output;
+    FILE *f;
+    const char* filename;
+    AVFrame *frame;
+    AVPacket pkt;
+    uint8_t endcode[] ;
+}Encoder;
 
 static void init_decoder(Decoder *dcrs, int number, AVCodec *codec){
     dcrs[0].filename="color0.mpg";
@@ -71,7 +84,64 @@ static void init_decoder(Decoder *dcrs, int number, AVCodec *codec){
         dcrs[i].frame_count = 0;
     }
 }
-void getRGB(RGBColor *pixel, AVFrame *frame, int x, int y){
+
+static void init_encoder(Encoder *enc, int codec_id){
+    enc->codec = avcodec_find_encoder(codec_id);
+    if (!enc->codec) {
+        fprintf(stderr, "Codec not found\n");
+        exit(1);
+    }
+    enc->c = avcodec_alloc_context3(enc->codec);
+    if (!enc->c) {
+        fprintf(stderr, "Could not allocate video codec context\n");
+        exit(1);
+    }
+
+    enc->c->bit_rate = 400000;
+    /* resolution must be a multiple of two */
+    enc->c->width = 640;
+    enc->c->height = 480;
+    /* frames per second */
+    enc->c->time_base = (AVRational){1,30};
+    /* emit one intra frame every ten frames
+     * check frame pict_type before passing frame
+     * to encoder, if frame->pict_type is AV_PICTURE_TYPE_I
+     * then gop_size is ignored and the output of encoder
+     * will always be I frame irrespective to gop_size
+     */
+    enc->c->gop_size = 10;
+    enc->c->max_b_frames = 1;
+    enc->c->pix_fmt = AV_PIX_FMT_YUV420P;
+    if (codec_id == AV_CODEC_ID_H264)
+        av_opt_set(enc->c->priv_data, "preset", "slow", 0);
+    /* open it */
+    if (avcodec_open2(enc->c, enc->codec, NULL) < 0) {
+        fprintf(stderr, "Could not open codec\n");
+        exit(1);
+    }
+    enc->f = fopen(enc->filename, "wb");
+    if (!enc->f) {
+        fprintf(stderr, "Could not open %s\n", enc->filename);
+        exit(1);
+    }
+    enc->frame = av_frame_alloc();
+    if (!enc->frame) {
+        fprintf(stderr, "Could not allocate video frame\n");
+        exit(1);
+    }
+    enc->frame->format = enc->c->pix_fmt;
+    enc->frame->width  = enc->c->width;
+    enc->frame->height = enc->c->height;
+    /* the image can be allocated by any means and av_image_alloc() is
+     * just the most convenient way if av_malloc() is to be used */
+    int  ret = av_image_alloc(enc->frame->data, enc->frame->linesize, enc->c->width, enc->c->height, enc->c->pix_fmt, 32);
+    if (ret < 0) {
+        fprintf(stderr, "Could not allocate raw picture buffer\n");
+        exit(1);
+    }
+}
+
+static void getRGB(RGBColor *pixel, AVFrame *frame, int x, int y){
     
     // Y component
     const unsigned char Y = frame->data[0][frame->linesize[0]*y + x];
@@ -118,11 +188,9 @@ static void getFrameCoordinateData(GLubyte* dest, AVFrame *frame){
     }
 }
 
-
 void setUpOpenGL(){
     glClearColor(0,0,0,0);
     glClearDepth(1.0f);
-
     // Set up array buffers
     glGenBuffers(1, &vboId);
     glBindBuffer(GL_ARRAY_BUFFER, vboId);
@@ -164,7 +232,7 @@ void getDataForFrame(AVFrame *colorFrame, AVFrame *depthFrame){
     glUnmapBuffer(GL_ARRAY_BUFFER);
 }
 
-void render(AVFrame *colorFrame, AVFrame *depthFrame){    
+static GLubyte* render(AVFrame *colorFrame, AVFrame *depthFrame){    
     getDataForFrame(colorFrame, depthFrame);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnableClientState(GL_VERTEX_ARRAY);
@@ -179,8 +247,13 @@ void render(AVFrame *colorFrame, AVFrame *depthFrame){
     glPointSize(1.f);
     glDrawArrays(GL_POINTS, 0, WIDTH*HEIGHT);
 
+    GLubyte *data = malloc(3 * WIDTH * HEIGHT);
+    glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
+
     glDisableClientState(GL_VERTEX_ARRAY);
     glDisableClientState(GL_COLOR_ARRAY);
+
+    return data;
 }
 
 static int decode_frame(Decoder *decoder, int last){
@@ -192,7 +265,7 @@ static int decode_frame(Decoder *decoder, int last){
     }
     if (got_frame) {
         // printf("Saving %sframe %3d\n", last ? "last " : "", decoder->frame_count);
-        printf("decoder-%d gets %d's frame \n", decoder->id, decoder->frame_count);
+        // printf("decoder-%d gets %d's frame \n", decoder->id, decoder->frame_count);
         fflush(stdout);
         /* the picture is allocated by the decoder, no need to free it */
         // snprintf(buf, sizeof(buf), outfilename, *frame_count);
@@ -252,7 +325,15 @@ static void decode_video(Decoder *dcrs, int number)
         }
         // printf("%d\n", dcrs[0].frame_count);
         //after decoding the frame, render the data:
-        render(dcrs[0].frame, dcrs[1].frame);
+        GLubyte* data0 = render(dcrs[0].frame, dcrs[1].frame);
+        GLubyte* data1 = render(dcrs[2].frame, dcrs[3].frame);
+
+        // FILE *write_file;
+        // write_file=fopen("myfile.pgm", "w");
+        // fwrite (data0, sizeof(GLubyte), 3*WIDTH*HEIGHT, write_file);
+        // fclose(write_file);
+
+
     }
     /* some codecs, such as MPEG, transmit the I and P frame with a
        latency of one frame. You must do the following to have a
@@ -272,7 +353,31 @@ static void decode_video(Decoder *dcrs, int number)
 
 }
 
-
+static void encode_video(const char *filename, int codec_id, int frame_count){
+   
+    // /* get the delayed frames */
+    // for (got_output = 1; got_output; i++) {
+    //     fflush(stdout);
+    //     ret = avcodec_encode_video2(c, &pkt, NULL, &got_output);
+    //     if (ret < 0) {
+    //         fprintf(stderr, "Error encoding frame\n");
+    //         exit(1);
+    //     }
+    //     if (got_output) {
+    //         printf("Write frame %3d (size=%5d)\n", i, pkt.size);
+    //         fwrite(pkt.data, 1, pkt.size, f);
+    //         av_free_packet(&pkt);
+    //     }
+    // }
+    // /* add sequence end code to have a real mpeg file */
+    // fwrite(endcode, 1, sizeof(endcode), f);
+    // fclose(f);
+    // avcodec_close(c);
+    // av_free(c);
+    // av_freep(&frame->data[0]);
+    // av_frame_free(&frame);
+    // printf("\n");
+}
 
 int main(int argc, char **argv)
 {
@@ -286,6 +391,7 @@ int main(int argc, char **argv)
     setUpOpenGL();
 
     Decoder *dcrs = (Decoder*)malloc(4*sizeof(Decoder));
+    Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
     decode_video(dcrs, 4);
 
     return 0;
