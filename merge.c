@@ -18,18 +18,21 @@
 #define AUDIO_REFILL_THRESH 4096
 #define WIDTH 640
 #define HEIGHT 480
+#define FPS 30
+#define MAX_NUM_STREAM 4
 
 GLuint vboId; // Vertex buffer ID
 GLuint cboId; // Color buffer ID
 GLuint *framebuffer;
 GLuint *framebuffer;
-AVFrame **frames;
+
+AVFrame *frames[MAX_NUM_STREAM][FPS];
+
 int total_frames ;
 float colorarray0[WIDTH*HEIGHT*3];
 float vertexarray0[WIDTH*HEIGHT*3];
 float colorarray1[WIDTH*HEIGHT*3];
 float vertexarray1[WIDTH*HEIGHT*3];
-
 
 typedef struct RGBColor_t{
     uint8_t r;
@@ -59,12 +62,12 @@ typedef struct Encoder_t{
     AVPacket pkt;
 }Encoder;
 
-static void init_decoder(Decoder *dcrs, int number ){
+static void init_decoder(Decoder *dcrs){
     dcrs[0].filename="color0.mpg";
     dcrs[1].filename="depth0.mpg";
     dcrs[2].filename="color1.mpg";
     dcrs[3].filename="depth1.mpg";
-    for(int i=0;i<number; i++){
+    for(int i=0;i<MAX_NUM_STREAM; i++){
         dcrs[i].id=i;
         /* find the mpeg1 video decoder */
         dcrs[i].codec = avcodec_find_decoder(AV_CODEC_ID_MPEG1VIDEO);
@@ -76,14 +79,14 @@ static void init_decoder(Decoder *dcrs, int number ){
         memset(dcrs[i].inbuf + INBUF_SIZE, 0, FF_INPUT_BUFFER_PADDING_SIZE);
         
         dcrs[i].c = avcodec_alloc_context3(dcrs[i].codec);
-        if (!dcrs[i].c) {
+        if(!dcrs[i].c){
             fprintf(stderr, "Could not allocate video codec context\n");
             exit(1);
         }
         if(dcrs[i].codec->capabilities&CODEC_CAP_TRUNCATED){
             dcrs[i].c->flags|= CODEC_FLAG_TRUNCATED; 
         }
-        if (avcodec_open2(dcrs[i].c, dcrs[i].codec, NULL) < 0) {
+        if(avcodec_open2(dcrs[i].c, dcrs[i].codec, NULL) < 0) {
             fprintf(stderr, "Could not open codec\n");
             exit(1);
         }
@@ -221,104 +224,51 @@ static void getFrameCoordinateData(GLubyte* dest, AVFrame *frame){
     }
 }
 
-void setUpOpenGL(){
-    glClearColor(0,0,0,0);
-    glClearDepth(1.0f);
-    // Set up array buffers
-    glGenBuffers(1, &vboId);
-    glBindBuffer(GL_ARRAY_BUFFER, vboId);
-    glGenBuffers(1, &cboId);
-    glBindBuffer(GL_ARRAY_BUFFER, cboId);
 
-/*  select clearing (background) color       */
-    glClearColor (0.0, 0.0, 0.0, 0.0);
-
-/*  initialize viewing values  */
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
-
-
-
-    // // Camera setup
-    // glViewport(0, 0, WIDTH, HEIGHT);
-    // glMatrixMode(GL_PROJECTION);
-    // glLoadIdentity();
-    // gluPerspective(45, WIDTH /(GLdouble) HEIGHT, 0.1, 1000);
-    // glMatrixMode(GL_MODELVIEW);
-    // glLoadIdentity();
-    // gluLookAt(0,0,0,0,0,1,0,1,0);
-}
-
-void getDataForFrame_old(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
-    getFrameCoordinateData((GLubyte*)vertexarray0, depthFrame0);
-    getFrameCoordinateData((GLubyte*)vertexarray1, depthFrame1);
-    getFrameColorData((GLubyte*)colorarray0, colorFrame0);
-    getFrameColorData((GLubyte*)colorarray1, colorFrame1);
-}
-
-void getDataForFrame(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
-    const int dataSize = WIDTH*HEIGHT*6*sizeof(float);
-    GLubyte* ptr;
-    glBindBuffer(GL_ARRAY_BUFFER, vboId);
-    glBufferData(GL_ARRAY_BUFFER, dataSize, 0, GL_DYNAMIC_DRAW);
-    ptr = (GLubyte*) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    //get coordinate data
-    if(ptr){
-        getFrameCoordinateData(ptr, depthFrame0);
-        getFrameCoordinateData(ptr, depthFrame1);   
-    }else{
-        fprintf(stderr, "Failed to get a point to coordinate data\n");
+static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
+    float *fdestColor = destColor;
+    float *fdestDepth = destDepth;
+    RGBColor pixel;
+    memset(&pixel, 0, sizeof(RGBColor));
+    int x,y;
+    int num=0;
+    for(y=0; y<frameColor->height; y++){
+        for(x=0; x<frameColor->width; x++){
+            getRGB(&pixel, frameColor, x ,y);
+            if((int)pixel.r==0 && (int)pixel.g==255 && (int)pixel.b==0){
+                continue;
+            }            
+            num++;
+            *fdestColor++ = ((float)pixel.r)/255.f;
+            *fdestColor++ = ((float)pixel.g)/255.f;
+            *fdestColor++ = ((float)pixel.b)/255.f;
+            *fdestDepth++ = ((float)x)/frameColor->width;
+            *fdestDepth++ = ((float)y)/frameColor->height;
+            uint8_t Y = frameDepth->data[0][y*frameDepth->linesize[0]+x];
+            *fdestDepth++ = Y/255.f;   
+        }
     }
-    glUnmapBuffer(GL_ARRAY_BUFFER);
-
-    glBindBuffer(GL_ARRAY_BUFFER, cboId);
-    glBufferData(GL_ARRAY_BUFFER, dataSize, 0, GL_DYNAMIC_DRAW);
-    ptr = (GLubyte*) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    //get color data:
-    if(ptr){
-        getFrameColorData(ptr, colorFrame0);
-        getFrameColorData(ptr, colorFrame1);
-    }else{
-        fprintf(stderr, "Failed to get a point to rgb data\n");
-    }
-    glUnmapBuffer(GL_ARRAY_BUFFER);
+    return num;
 }
 
-
-static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){    
-    getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glEnableClientState(GL_VERTEX_ARRAY);
-    glEnableClientState(GL_COLOR_ARRAY);
-
-    glBindBuffer(GL_ARRAY_BUFFER, vboId);
-    glVertexPointer(3, GL_FLOAT, 0, NULL);
-
-    glBindBuffer(GL_ARRAY_BUFFER, cboId);
-    glColorPointer(3, GL_FLOAT, 0, NULL);
-
-    glPointSize(1.f);
-    glDrawArrays(GL_POINTS, 0, WIDTH*HEIGHT);
-
-    GLubyte *data = malloc(3 * WIDTH * HEIGHT);
-    glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
-
-    glDisableClientState(GL_VERTEX_ARRAY);
-    glDisableClientState(GL_COLOR_ARRAY);
-
-    return data;
+static void getDataForFrame(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, int *num_points_0, int *num_points_1){
+    *num_points_0 = getColorAndCoordData(colorarray0, colorFrame0, vertexarray0, depthFrame0);
+    *num_points_1 = getColorAndCoordData(colorarray1, colorFrame1, vertexarray1, depthFrame1);
 }
 
-static GLubyte* render_old(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
-    getDataForFrame_old(colorFrame0, depthFrame0, colorFrame1, depthFrame1);
+static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
+    int num_points_0 = 0;
+    int num_points_1 = 0;
+    getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     // glColor3f (1.0, 1.0, 1.0);
 
     glBegin(GL_POINTS);
-    for (int i = 0; i < WIDTH*HEIGHT; ++i) {
+    for (int i = 0; i < num_points_0; ++i) {
         glColor3f(colorarray0[i*3], colorarray0[i*3+1], colorarray0[i*3+2]);
         glVertex3f(vertexarray0[i*3], vertexarray0[i*3+1], vertexarray0[i*3+2]);
+    }
+    for (int i = 0; i < num_points_1; ++i) {
         glColor3f(colorarray1[i*3], colorarray1[i*3+1], colorarray1[i*3+2]);
         glVertex3f(vertexarray1[i*3], vertexarray1[i*3+1], vertexarray1[i*3+2]);
     }
@@ -331,25 +281,18 @@ static GLubyte* render_old(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
 
     return data;
-}
 
+    return NULL;
+}
 
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
-        render(&frames[0][i], &frames[1][i], &frames[2][i], &frames[3][i]);
-    }
-}
-
-static void render_scene_old(){
-    for(int i=0; i<total_frames; i++){
-        render_old(&frames[0][i], &frames[1][i], &frames[2][i], &frames[3][i]);
+        render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
     }
 
 }
 
-
-
-static int decode_frame(Decoder *decoder, int last){
+static int decode_frame(Decoder *decoder){
     int len, got_frame;
     len = avcodec_decode_video2(decoder->c, decoder->frame, &got_frame, &decoder->avpkt);
     if (len < 0) {
@@ -357,13 +300,8 @@ static int decode_frame(Decoder *decoder, int last){
         return len;
     }
     if (got_frame) {
-        // printf("Saving %sframe %3d\n", last ? "last " : "", decoder->frame_count);
-        printf("decoder-%d gets %d's frame \n", decoder->id, decoder->frame_count);
-        fflush(stdout);
-        /* the picture is allocated by the decoder, no need to free it */
-        // snprintf(buf, sizeof(buf), outfilename, *frame_count);
-        // write_data(frame, buf);
-        memcpy(&frames[decoder->id][decoder->frame_count], decoder->frame, sizeof(AVFrame));
+        //copy the frame into our placeholder structure
+        frames[decoder->id][decoder->frame_count]=av_frame_clone(decoder->frame);
         decoder->frame_count++;
     }
     if (decoder->avpkt.data) {
@@ -373,55 +311,37 @@ static int decode_frame(Decoder *decoder, int last){
     return 0;
 }
 
-static void decode_video_frame(Decoder *dcrs, int number)
+static void decode_video_frame(Decoder *dcrs)
 {
-    for (;;) {
-        int i;
-        for(i=0; i<number; i++){
+    //maybe we should stop doing this parallel processing:
+    for(int i=0; i<MAX_NUM_STREAM; i++){
+        while(1){
             dcrs[i].avpkt.size = fread(dcrs[i].inbuf, 1, INBUF_SIZE, dcrs[i].f);
-        }
-        if(dcrs[0].avpkt.size==0 && dcrs[1].avpkt.size==0 && dcrs[2].avpkt.size==0 && dcrs[3].avpkt.size==0){
-            break;
-        }
-        /* NOTE1: some codecs are stream based (mpegvideo, mpegaudio)
-           and this is the only method to use them because you cannot
-           know the compressed data size before analysing it.
-           BUT some other codecs (msmpeg4, mpeg4) are inherently frame
-           based, so you must call them with all the data for one
-           frame exactly. You must also initialize 'width' and
-           'height' before initializing them. */
-        /* NOTE2: some codecs allow the raw parameters (frame size,
-           sample rate) to be changed at any frame. We handle this, so
-           you should also take care of it */
-        /* here, we use a stream based decoder (mpeg1video), so we
-           feed decoder and see if it could decode a frame */
-        for(i=0; i<number; i++){
+            if(dcrs[i].avpkt.size<=0){
+                break;
+            }
             dcrs[i].avpkt.data = dcrs[i].inbuf;
             while (dcrs[i].avpkt.size > 0){
-                // printf("%d has decoded %d \n", i, dcrs[i].avpkt.size );
-                if (decode_frame(&dcrs[i], 0) < 0){
+                // printf("decoder-%d has %d left to decode\n", i, dcrs[i].avpkt.size );
+                if (decode_frame(&dcrs[i]) < 0){
                     fprintf(stderr, "something wrong happens with the decoding\n");
                     exit(1);                    
                 }
-            }           
+            }
         }
-        // GLubyte* data = render(dcrs[0].frame, dcrs[1].frame, dcrs[2].frame, dcrs[3].frame);
-    }
-    /* some codecs, such as MPEG, transmit the I and P frame with a
-       latency of one frame. You must do the following to have a
-       chance to get the last frame of the video */
-    int i;
-    for(i=0; i<number; i++){
+
         dcrs[i].avpkt.data = NULL;
         dcrs[i].avpkt.size = 0;
-        decode_frame(&dcrs[i], 1);
+        decode_frame(&dcrs[i]);
         fclose(dcrs[i].f);
         avcodec_close(dcrs[i].c);
         av_free(dcrs[i].c);
         av_frame_free(&dcrs[i].frame);
-        printf("\n");
     }
+
 }
+
+
 
 static void encode_video(Encoder *enc){
     uint8_t endcode[] = { 0, 0, 1, 0xb7 };
@@ -433,7 +353,7 @@ static void encode_video(Encoder *enc){
         fflush(stdout);
 
         //prepare image:
-        GLubyte* data=render_old(&frames[0][i], &frames[1][i], &frames[2][i], &frames[3][i]);
+        GLubyte* data=render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
         //Y U, V:
         for(y=0; y<enc->c->height; y++){
             for(x=0; x<enc->c->width; x++){
@@ -520,6 +440,27 @@ static void encode_video(Encoder *enc){
     printf("\n");
 }
 
+
+
+void setUpOpenGL(){
+    glClearColor(0,0,0,0);
+    glClearDepth(1.0f);
+    // Set up array buffers
+    glGenBuffers(1, &vboId);
+    glBindBuffer(GL_ARRAY_BUFFER, vboId);
+    glGenBuffers(1, &cboId);
+    glBindBuffer(GL_ARRAY_BUFFER, cboId);
+
+/*  select clearing (background) color       */
+    glClearColor (0.0, 0.0, 0.0, 0.0);
+
+/*  initialize viewing values  */
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
+
+}
+
 int main(int argc, char **argv)
 {
     glutInit(&argc, argv);
@@ -531,15 +472,22 @@ int main(int argc, char **argv)
     avcodec_register_all();
     setUpOpenGL();
 
-    frames = (AVFrame**)malloc(4*sizeof(AVFrame*));
-    for(int i=0; i<4; i++){
-        frames[i]=(AVFrame*)malloc(30*sizeof(AVFrame));
+    // frames = (AVFrame**)malloc(4*sizeof(AVFrame*));
+    // for(int i=0; i<4; i++){
+    //     frames[i]=(AVFrame*)malloc(30*sizeof(AVFrame));
+    // }
+    for(int i=0; i<MAX_NUM_STREAM; i++){
+        for(int j=0; j<FPS; j++){
+            frames[i][j]=NULL;
+        }
     }
+
     total_frames=INT_MAX;
 
-    Decoder *dcrs = (Decoder*)malloc(4*sizeof(Decoder));
-    init_decoder(dcrs, 4);
-    decode_video_frame(dcrs, 4);
+    Decoder *dcrs = (Decoder*)malloc(MAX_NUM_STREAM*sizeof(Decoder));
+    init_decoder(dcrs);
+    decode_video_frame(dcrs);
+
 
     if(total_frames>dcrs[0].frame_count){
         total_frames=dcrs[0].frame_count;
@@ -554,14 +502,14 @@ int main(int argc, char **argv)
         total_frames=dcrs[3].frame_count;
     }
 
+    // printf("%d\n", total_frames);
 
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
     init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, total_frames);
     encode_video(enc);
 
-    // glutDisplayFunc(render_scene_old); 
-    // glutIdleFunc(render_scene_old);
-
+    // glutDisplayFunc(render_scene); 
+    // glutIdleFunc(render_scene);
     // glutMainLoop();
 
     return 0;

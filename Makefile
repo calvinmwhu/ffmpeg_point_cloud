@@ -10,4 +10,4 @@ merge.o: merge.c
 	$(CC) $(FLAG) merge.c
 
 clean:
-	rm -rf *o merge temp/*.pgm
+	rm -rf *.o merge output.mpg
