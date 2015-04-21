@@ -217,20 +217,19 @@ static int getColorAndCoordData_RGB(float* destColor, AVFrame *frameColor, float
             uint8_t r_coord = frameDepth->data[0][offset];
             uint8_t g_coord = frameDepth->data[0][offset+1];
             uint8_t b_coord = frameDepth->data[0][offset+2];
+            if(r_color==0 && g_color==254 && b_color==0){
+                continue;   
+            }
             num++;
-            // *fdestColor++ = ((float)r_color)/255.f;
-            // *fdestColor++ = ((float)g_color)/255.f;
-            // *fdestColor++ = ((float)b_color)/255.f;
-            
-            *fdestColor++ = (float)r_color;
-            *fdestColor++ = (float)g_color;
-            *fdestColor++ = (float)b_color;
-
+            *fdestColor++ = ((float)r_color)/255.f;
+            *fdestColor++ = ((float)g_color)/255.f;
+            *fdestColor++ = ((float)b_color)/255.f;
             *fdestDepth++ = ((float)x)/frameColor->width;
             *fdestDepth++ = ((float)y)/frameColor->height;
             *fdestDepth++ = r_coord/255.f;   
         }
     }
+    // printf("%d\n", num);
     return num;
 }
 
@@ -276,8 +275,8 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
     int num_points_0 = 0;
     int num_points_1 = 0;
 
-    getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
-    // getDataForFrame_RGB(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
+    // getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
+    getDataForFrame_RGB(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
 
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -324,7 +323,7 @@ static int decode_frame(Decoder *decoder){
     if (got_frame) {
         //copy the frame into our placeholder structure
         // printf("%d\n", AV_PIX_FMT_YUV420P);
-        frames[decoder->id][decoder->frame_count]=av_frame_clone(decoder->frame);
+        // frames[decoder->id][decoder->frame_count]=av_frame_clone(decoder->frame);
 
 
         //can we directly convert it to a RGB frame ?
@@ -357,7 +356,7 @@ static int decode_frame(Decoder *decoder){
             rgbFrame->linesize
             );
 
-        // frames[decoder->id][decoder->frame_count]=av_frame_clone(rgbFrame);
+        frames[decoder->id][decoder->frame_count]=av_frame_clone(rgbFrame);
         decoder->frame_count++;
         av_frame_free(&rgbFrame);
     }
@@ -386,7 +385,6 @@ static void decode_video_frame(Decoder *dcrs)
                 }
             }
         }
-
         dcrs[i].avpkt.data = NULL;
         dcrs[i].avpkt.size = 0;
         decode_frame(&dcrs[i]);
