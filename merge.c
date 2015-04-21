@@ -9,6 +9,7 @@
 #include <libavutil/imgutils.h>
 #include <libavutil/mathematics.h>
 #include <libavutil/samplefmt.h>
+#include <libswscale/swscale.h>
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
@@ -23,8 +24,7 @@
 
 GLuint vboId; // Vertex buffer ID
 GLuint cboId; // Color buffer ID
-GLuint *framebuffer;
-GLuint *framebuffer;
+
 
 AVFrame *frames[MAX_NUM_STREAM][FPS];
 
@@ -178,52 +178,67 @@ static void init_encoder(Encoder *enc, int codec_id, int number_frames){
 static void getRGB(RGBColor *pixel, AVFrame *frame, int x, int y){
     
     // Y component
-    const unsigned char Y = frame->data[0][frame->linesize[0]*y + x];
+    uint8_t Y = frame->data[0][frame->linesize[0]*y + x];
 
     // U, V components 
     x /= 2;
     y /= 2;
-    const unsigned char U = frame->data[1][frame->linesize[1]*y + x];
-    const unsigned char V = frame->data[2][frame->linesize[2]*y + x];
+    uint8_t U = frame->data[1][frame->linesize[1]*y + x];
+    uint8_t V = frame->data[2][frame->linesize[2]*y + x];
+
+    // printf("%d  %d  %d\n", (int)Y, (int)U, (int)V );
     // RGB conversion
-    pixel->r = Y + 1.402*(V-128);
-    pixel->g = Y - 0.344*(U-128) - 0.714*(V-128);
-    pixel->b = Y + 1.772*(U-128);
+    // pixel->r = Y + 1.402*(V-128);
+    // pixel->g = Y - 0.344*(U-128) - 0.714*(V-128);
+    // pixel->b = Y + 1.772*(U-128);
+    pixel->r = Y + 1.140*V;
+    pixel->g = Y - 0.395*U - 0.581*V;
+    pixel->b = Y + 2.032*U;
+
+    // if((int)Y==145 && (int)U==54 && (int)V==34){
+    //     printf("%d  %d  %d\n", (int)pixel->r, (int)pixel->g, (int)pixel->b );
+    // }
+
 }
 
-static void getFrameColorData(GLubyte* dest, AVFrame *frame){
-    float* fdest = (float*) dest;
-    RGBColor pixel;
-    memset(&pixel, 0, sizeof(RGBColor));
-    int x, y;
-    for(y=0; y<frame->height; y++){
-        for(x=0; x<frame->width; x++){
-            getRGB(&pixel, frame, x ,y);
-            *fdest++ = pixel.r/255.f;
-            *fdest++ = pixel.g/255.f;
-            *fdest++ = pixel.b/255.f;
-            // printf("%f, %f, %f\n", *(fdest-3), *(fdest-2), *(fdest-1) );
-        }
-    }
-}
 
-static void getFrameCoordinateData(GLubyte* dest, AVFrame *frame){
-    float* fdest = (float*) dest;
-    RGBColor pixel;
-    memset(&pixel, 0, sizeof(RGBColor));
+
+static int getColorAndCoordData_RGB(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
+    float *fdestColor = destColor;
+    float *fdestDepth = destDepth;
     int x,y;
-    for(y=0; y<frame->height; y++){
-        for(x=0; x<frame->width; x++){
-            RGBColor pixel;
-            *fdest++ = ((float)x)/WIDTH;
-            *fdest++ = ((float)y)/HEIGHT;
-            uint8_t Y = frame->data[0][frame->linesize[0]*y+x];
-            *fdest++ = Y/255.f;
-            // printf("%f, %f, %f\n", *(fdest-3), *(fdest-2), *(fdest-1) );
+    int num=0;
+    for(y=0; y<frameColor->height; y++){
+        for(x=0; x<frameColor->width; x++){
+            int offset = y*frameColor->width+x;
+            uint8_t r_color = frameColor->data[0][offset];
+            uint8_t g_color = frameColor->data[0][offset+1];
+            uint8_t b_color = frameColor->data[0][offset+2];
+            uint8_t r_coord = frameDepth->data[0][offset];
+            uint8_t g_coord = frameDepth->data[0][offset+1];
+            uint8_t b_coord = frameDepth->data[0][offset+2];
+            num++;
+            // *fdestColor++ = ((float)r_color)/255.f;
+            // *fdestColor++ = ((float)g_color)/255.f;
+            // *fdestColor++ = ((float)b_color)/255.f;
+            
+            *fdestColor++ = (float)r_color;
+            *fdestColor++ = (float)g_color;
+            *fdestColor++ = (float)b_color;
+
+            *fdestDepth++ = ((float)x)/frameColor->width;
+            *fdestDepth++ = ((float)y)/frameColor->height;
+            *fdestDepth++ = r_coord/255.f;   
         }
     }
+    return num;
 }
 
+
+static void getDataForFrame_RGB(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, int *num_points_0, int *num_points_1){
+    *num_points_0 = getColorAndCoordData_RGB(colorarray0, colorFrame0, vertexarray0, depthFrame0);
+    *num_points_1 = getColorAndCoordData_RGB(colorarray1, colorFrame1, vertexarray1, depthFrame1);
+}
 
 static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
     float *fdestColor = destColor;
@@ -251,6 +266,7 @@ static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* de
     return num;
 }
 
+
 static void getDataForFrame(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, int *num_points_0, int *num_points_1){
     *num_points_0 = getColorAndCoordData(colorarray0, colorFrame0, vertexarray0, depthFrame0);
     *num_points_1 = getColorAndCoordData(colorarray1, colorFrame1, vertexarray1, depthFrame1);
@@ -259,7 +275,11 @@ static void getDataForFrame(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame 
 static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
     int num_points_0 = 0;
     int num_points_1 = 0;
+
     getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
+    // getDataForFrame_RGB(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
+
+
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     // glColor3f (1.0, 1.0, 1.0);
 
@@ -282,8 +302,10 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
 
     return data;
 
-    return NULL;
 }
+
+
+
 
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
@@ -301,8 +323,43 @@ static int decode_frame(Decoder *decoder){
     }
     if (got_frame) {
         //copy the frame into our placeholder structure
+        // printf("%d\n", AV_PIX_FMT_YUV420P);
         frames[decoder->id][decoder->frame_count]=av_frame_clone(decoder->frame);
+
+
+        //can we directly convert it to a RGB frame ?
+        int frame_data_size = (sizeof(uint8_t))*decoder->frame->width*decoder->frame->height*3;
+        AVFrame *rgbFrame = av_frame_alloc();
+        rgbFrame->width = decoder->frame->width;
+        rgbFrame->height = decoder->frame->height;
+        rgbFrame->format = AV_PIX_FMT_RGB24 ;
+        rgbFrame->pict_type = decoder->frame->pict_type;
+        rgbFrame->data[0] = malloc(frame_data_size);
+        memset(rgbFrame->data[0], 0, frame_data_size);
+        rgbFrame->linesize[0] = 3*rgbFrame->width;
+        struct SwsContext* rgbCtx = sws_getContext(
+                decoder->frame->width,
+                decoder->frame->height,
+                decoder->frame->format,
+                rgbFrame->width,
+                rgbFrame->height,
+                rgbFrame->format,
+                SWS_BICUBIC,
+                NULL,NULL,NULL
+            );
+        int out_height = sws_scale(
+            rgbCtx,
+            decoder->frame->data,
+            decoder->frame->linesize,
+            0,
+            decoder->frame->height,
+            rgbFrame->data,
+            rgbFrame->linesize
+            );
+
+        // frames[decoder->id][decoder->frame_count]=av_frame_clone(rgbFrame);
         decoder->frame_count++;
+        av_frame_free(&rgbFrame);
     }
     if (decoder->avpkt.data) {
         decoder->avpkt.size -= len;
@@ -341,8 +398,6 @@ static void decode_video_frame(Decoder *dcrs)
 
 }
 
-
-
 static void encode_video(Encoder *enc){
     uint8_t endcode[] = { 0, 0, 1, 0xb7 };
     int ret, x,y, i,got_output;
@@ -354,41 +409,30 @@ static void encode_video(Encoder *enc){
 
         //prepare image:
         GLubyte* data=render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
-        //Y U, V:
         for(y=0; y<enc->c->height; y++){
             for(x=0; x<enc->c->width; x++){
-                GLubyte *from = data+y*enc->c->height+x;
+                GLubyte *from = data+(y*enc->c->width+x)*3;
                 uint8_t R = from[0];
                 uint8_t G = from[1];
                 uint8_t B = from[2];
-                uint8_t Y = 0.299*R + 0.587*G + 0.114*B;
+                int Y = ( ( 66 * R + 129 * G + 25 * B + 128) >> 8) + 16;
                 enc->frame->data[0][y * enc->frame->linesize[0] + x] = Y;
-                enc->frame->data[1][y/2 * enc->frame->linesize[1] + x/2] = 0.492*(B-Y);
-                enc->frame->data[2][y/2 * enc->frame->linesize[2] + x/2] = 0.877*(R-Y);
             }
         }
-        //Y:
-        // for(y=0; y<enc->c->height; y++){
-        //     for(x=0; x<enc->c->width; x++){
-        //         GLubyte *from = data+y*enc->c->height+x;
-        //         uint8_t R = from[0];
-        //         uint8_t G = from[1];
-        //         uint8_t B = from[2];
-        //         enc->frame->data[0][y * enc->frame->linesize[0] + x] = 0.299*R + 0.587*G + 0.114*B;
-        //     }
-        // }
-        // /* Cb and Cr */
-        // for (y = 0; y < enc->c->height/2; y++) {
-        //     for (x = 0; x < enc->c->width/2; x++) {
-        //         GLubyte *from = data+y*2*enc->c->height+x*2;
-        //         uint8_t R = from[0];
-        //         uint8_t G = from[1];
-        //         uint8_t B = from[2];
-        //         uint8_t Y = enc->frame->data[0][y*2* enc->frame->linesize[0] + x*2] ;
-        //         enc->frame->data[1][y * enc->frame->linesize[1] + x] = 0.492*(B-Y);
-        //         enc->frame->data[2][y * enc->frame->linesize[2] + x] = 0.877*(R-Y);
-        //     }
-        // }
+
+        for (y = 0; y < enc->c->height/2; y++) {
+            for (x = 0; x < enc->c->width/2; x++) {
+                GLubyte *from = data+(y*2*enc->c->width+x*2)*3;
+                uint8_t R = from[0];
+                uint8_t G = from[1];
+                uint8_t B = from[2];
+                int Y = ( ( 66 * R + 129 * G + 25 * B + 128) >> 8) + 16;
+                int U = ( ( -38 * R - 74 * G + 112 * B + 128) >> 8) + 128;
+                int V = ( ( 112 * R - 94 * G - 18 * B + 128) >> 8) + 128;
+                enc->frame->data[1][y * enc->frame->linesize[1] + x] = U;
+                enc->frame->data[2][y * enc->frame->linesize[2] + x] = V;
+            }
+        }
 
         //  for (y = 0; y < enc->c->height; y++) {
         //     for (x = 0; x < enc->c->width; x++) {
