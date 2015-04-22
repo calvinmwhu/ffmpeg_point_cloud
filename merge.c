@@ -15,8 +15,6 @@
 #include <GLUT/glut.h>
 
 #define INBUF_SIZE 4096
-#define AUDIO_INBUF_SIZE 20480
-#define AUDIO_REFILL_THRESH 4096
 #define WIDTH 640
 #define HEIGHT 480
 #define FPS 30
@@ -194,50 +192,6 @@ static void getRGB(RGBColor *pixel, AVFrame *frame, int x, int y){
     pixel->r = Y + 1.140*V;
     pixel->g = Y - 0.395*U - 0.581*V;
     pixel->b = Y + 2.032*U;
-
-    // if((int)Y==145 && (int)U==54 && (int)V==34){
-    //     printf("%d  %d  %d\n", (int)pixel->r, (int)pixel->g, (int)pixel->b );
-    // }
-
-}
-
-
-
-static int getColorAndCoordData_RGB(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
-    float *fdestColor = destColor;
-    float *fdestDepth = destDepth;
-    int x,y;
-    int num=0;
-    for(y=0; y<frameColor->height; y++){
-        for(x=0; x<frameColor->width; x++){
-            int offset = y*frameColor->width+x;
-            uint8_t r_color = frameColor->data[0][offset];
-            uint8_t g_color = frameColor->data[0][offset+1];
-            uint8_t b_color = frameColor->data[0][offset+2];
-            uint8_t r_coord = frameDepth->data[0][offset];
-            uint8_t g_coord = frameDepth->data[0][offset+1];
-            uint8_t b_coord = frameDepth->data[0][offset+2];
-            num++;
-            // *fdestColor++ = ((float)r_color)/255.f;
-            // *fdestColor++ = ((float)g_color)/255.f;
-            // *fdestColor++ = ((float)b_color)/255.f;
-            
-            *fdestColor++ = (float)r_color;
-            *fdestColor++ = (float)g_color;
-            *fdestColor++ = (float)b_color;
-
-            *fdestDepth++ = ((float)x)/frameColor->width;
-            *fdestDepth++ = ((float)y)/frameColor->height;
-            *fdestDepth++ = r_coord/255.f;   
-        }
-    }
-    return num;
-}
-
-
-static void getDataForFrame_RGB(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, int *num_points_0, int *num_points_1){
-    *num_points_0 = getColorAndCoordData_RGB(colorarray0, colorFrame0, vertexarray0, depthFrame0);
-    *num_points_1 = getColorAndCoordData_RGB(colorarray1, colorFrame1, vertexarray1, depthFrame1);
 }
 
 static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
@@ -277,8 +231,6 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
     int num_points_1 = 0;
 
     getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
-    // getDataForFrame_RGB(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
-
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     // glColor3f (1.0, 1.0, 1.0);
@@ -304,9 +256,6 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
 
 }
 
-
-
-
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
         render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
@@ -325,41 +274,7 @@ static int decode_frame(Decoder *decoder){
         //copy the frame into our placeholder structure
         // printf("%d\n", AV_PIX_FMT_YUV420P);
         frames[decoder->id][decoder->frame_count]=av_frame_clone(decoder->frame);
-
-
-        //can we directly convert it to a RGB frame ?
-        int frame_data_size = (sizeof(uint8_t))*decoder->frame->width*decoder->frame->height*3;
-        AVFrame *rgbFrame = av_frame_alloc();
-        rgbFrame->width = decoder->frame->width;
-        rgbFrame->height = decoder->frame->height;
-        rgbFrame->format = AV_PIX_FMT_RGB24 ;
-        rgbFrame->pict_type = decoder->frame->pict_type;
-        rgbFrame->data[0] = malloc(frame_data_size);
-        memset(rgbFrame->data[0], 0, frame_data_size);
-        rgbFrame->linesize[0] = 3*rgbFrame->width;
-        struct SwsContext* rgbCtx = sws_getContext(
-                decoder->frame->width,
-                decoder->frame->height,
-                decoder->frame->format,
-                rgbFrame->width,
-                rgbFrame->height,
-                rgbFrame->format,
-                SWS_BICUBIC,
-                NULL,NULL,NULL
-            );
-        int out_height = sws_scale(
-            rgbCtx,
-            decoder->frame->data,
-            decoder->frame->linesize,
-            0,
-            decoder->frame->height,
-            rgbFrame->data,
-            rgbFrame->linesize
-            );
-
-        // frames[decoder->id][decoder->frame_count]=av_frame_clone(rgbFrame);
         decoder->frame_count++;
-        av_frame_free(&rgbFrame);
     }
     if (decoder->avpkt.data) {
         decoder->avpkt.size -= len;
