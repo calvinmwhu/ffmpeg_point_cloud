@@ -15,8 +15,6 @@
 #include <GLUT/glut.h>
 
 #define INBUF_SIZE 4096
-#define AUDIO_INBUF_SIZE 20480
-#define AUDIO_REFILL_THRESH 4096
 #define WIDTH 640
 #define HEIGHT 480
 #define FPS 30
@@ -103,17 +101,6 @@ static void init_decoder(Decoder *dcrs){
         dcrs[i].frame_count = 0;
     }
 }
-
-// typedef struct Encoder_t{
-//     AVCodec *codec;
-//     AVCodecContext *c;
-//     // int i, ret, x, y, got_output;
-//     FILE *f;
-//     const char* filename;
-//     AVFrame *frame;
-//     AVPacket pkt;
-//     uint8_t endcode[] ;
-// }Encoder;
 
 
 static void init_encoder(Encoder *enc, int codec_id, int number_frames){
@@ -217,7 +204,7 @@ static int getColorAndCoordData_RGB(float* destColor, AVFrame *frameColor, float
             uint8_t r_coord = frameDepth->data[0][offset];
             uint8_t g_coord = frameDepth->data[0][offset+1];
             uint8_t b_coord = frameDepth->data[0][offset+2];
-            if(r_color==0 && g_color==254 && b_color==0){
+            if(r_color==0 && g_color==255 && b_color==0){
                 continue;   
             }
             num++;
@@ -303,15 +290,49 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
 
 }
 
-
-
-
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
         render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
     }
 
 }
+
+static int decode_frame_RGB(Decoder *decoder){
+    int frame_data_size = (sizeof(uint8_t))*decoder->frame->width*decoder->frame->height*3;
+    AVFrame *rgbFrame = av_frame_alloc();
+    rgbFrame->width = decoder->frame->width;
+    rgbFrame->height = decoder->frame->height;
+    rgbFrame->format = AV_PIX_FMT_RGB24 ;
+    rgbFrame->pict_type = decoder->frame->pict_type;
+    rgbFrame->data[0] = malloc(frame_data_size);
+    memset(rgbFrame->data[0], 0, frame_data_size);
+    rgbFrame->linesize[0] = 3*rgbFrame->width;
+    struct SwsContext* rgbCtx = sws_getContext(
+            decoder->frame->width,
+            decoder->frame->height,
+            decoder->frame->format,
+            rgbFrame->width,
+            rgbFrame->height,
+            rgbFrame->format,
+            SWS_BICUBIC,
+            NULL,NULL,NULL
+        );
+    int out_height = sws_scale(
+        rgbCtx,
+        decoder->frame->data,
+        decoder->frame->linesize,
+        0,
+        decoder->frame->height,
+        rgbFrame->data,
+        rgbFrame->linesize
+        );
+
+    frames[decoder->id][decoder->frame_count]=av_frame_clone(rgbFrame);
+    decoder->frame_count++;
+    av_frame_free(&rgbFrame);
+    return out_height;
+}
+
 
 static int decode_frame(Decoder *decoder){
     int len, got_frame;
@@ -322,43 +343,10 @@ static int decode_frame(Decoder *decoder){
     }
     if (got_frame) {
         //copy the frame into our placeholder structure
-        // printf("%d\n", AV_PIX_FMT_YUV420P);
         // frames[decoder->id][decoder->frame_count]=av_frame_clone(decoder->frame);
 
-
         //can we directly convert it to a RGB frame ?
-        int frame_data_size = (sizeof(uint8_t))*decoder->frame->width*decoder->frame->height*3;
-        AVFrame *rgbFrame = av_frame_alloc();
-        rgbFrame->width = decoder->frame->width;
-        rgbFrame->height = decoder->frame->height;
-        rgbFrame->format = AV_PIX_FMT_RGB24 ;
-        rgbFrame->pict_type = decoder->frame->pict_type;
-        rgbFrame->data[0] = malloc(frame_data_size);
-        memset(rgbFrame->data[0], 0, frame_data_size);
-        rgbFrame->linesize[0] = 3*rgbFrame->width;
-        struct SwsContext* rgbCtx = sws_getContext(
-                decoder->frame->width,
-                decoder->frame->height,
-                decoder->frame->format,
-                rgbFrame->width,
-                rgbFrame->height,
-                rgbFrame->format,
-                SWS_BICUBIC,
-                NULL,NULL,NULL
-            );
-        int out_height = sws_scale(
-            rgbCtx,
-            decoder->frame->data,
-            decoder->frame->linesize,
-            0,
-            decoder->frame->height,
-            rgbFrame->data,
-            rgbFrame->linesize
-            );
-
-        frames[decoder->id][decoder->frame_count]=av_frame_clone(rgbFrame);
-        decoder->frame_count++;
-        av_frame_free(&rgbFrame);
+        decode_frame_RGB(decoder);
     }
     if (decoder->avpkt.data) {
         decoder->avpkt.size -= len;
