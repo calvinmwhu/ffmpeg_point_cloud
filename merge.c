@@ -20,10 +20,6 @@
 #define FPS 30
 #define MAX_NUM_STREAM 4
 
-GLuint vboId; // Vertex buffer ID
-GLuint cboId; // Color buffer ID
-
-
 AVFrame *frames[MAX_NUM_STREAM][FPS];
 
 int total_frames ;
@@ -162,35 +158,7 @@ static void init_encoder(Encoder *enc, int codec_id, int number_frames){
     }
 }
 
-static void getRGB(RGBColor *pixel, AVFrame *frame, int x, int y){
-    
-    // Y component
-    uint8_t Y = frame->data[0][frame->linesize[0]*y + x];
-
-    // U, V components 
-    x /= 2;
-    y /= 2;
-    uint8_t U = frame->data[1][frame->linesize[1]*y + x];
-    uint8_t V = frame->data[2][frame->linesize[2]*y + x];
-
-    // printf("%d  %d  %d\n", (int)Y, (int)U, (int)V );
-    // RGB conversion
-    // pixel->r = Y + 1.402*(V-128);
-    // pixel->g = Y - 0.344*(U-128) - 0.714*(V-128);
-    // pixel->b = Y + 1.772*(U-128);
-    pixel->r = Y + 1.140*V;
-    pixel->g = Y - 0.395*U - 0.581*V;
-    pixel->b = Y + 2.032*U;
-
-    // if((int)Y==145 && (int)U==54 && (int)V==34){
-    //     printf("%d  %d  %d\n", (int)pixel->r, (int)pixel->g, (int)pixel->b );
-    // }
-
-}
-
-
-
-static int getColorAndCoordData_RGB(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
+static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
     float *fdestColor = destColor;
     float *fdestDepth = destDepth;
     int x,y;
@@ -221,38 +189,6 @@ static int getColorAndCoordData_RGB(float* destColor, AVFrame *frameColor, float
 }
 
 
-static void getDataForFrame_RGB(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, int *num_points_0, int *num_points_1){
-    *num_points_0 = getColorAndCoordData_RGB(colorarray0, colorFrame0, vertexarray0, depthFrame0);
-    *num_points_1 = getColorAndCoordData_RGB(colorarray1, colorFrame1, vertexarray1, depthFrame1);
-}
-
-static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
-    float *fdestColor = destColor;
-    float *fdestDepth = destDepth;
-    RGBColor pixel;
-    memset(&pixel, 0, sizeof(RGBColor));
-    int x,y;
-    int num=0;
-    for(y=0; y<frameColor->height; y++){
-        for(x=0; x<frameColor->width; x++){
-            getRGB(&pixel, frameColor, x ,y);
-            if((int)pixel.r==0 && (int)pixel.g==255 && (int)pixel.b==0){
-                continue;
-            }            
-            num++;
-            *fdestColor++ = ((float)pixel.r)/255.f;
-            *fdestColor++ = ((float)pixel.g)/255.f;
-            *fdestColor++ = ((float)pixel.b)/255.f;
-            *fdestDepth++ = ((float)x)/frameColor->width;
-            *fdestDepth++ = ((float)y)/frameColor->height;
-            uint8_t Y = frameDepth->data[0][y*frameDepth->linesize[0]+x];
-            *fdestDepth++ = Y/255.f;   
-        }
-    }
-    return num;
-}
-
-
 static void getDataForFrame(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, int *num_points_0, int *num_points_1){
     *num_points_0 = getColorAndCoordData(colorarray0, colorFrame0, vertexarray0, depthFrame0);
     *num_points_1 = getColorAndCoordData(colorarray1, colorFrame1, vertexarray1, depthFrame1);
@@ -262,13 +198,8 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
     int num_points_0 = 0;
     int num_points_1 = 0;
 
-    // getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
-    getDataForFrame_RGB(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
-
-
+    getDataForFrame(colorFrame0, depthFrame0, colorFrame1, depthFrame1, &num_points_0, &num_points_1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    // glColor3f (1.0, 1.0, 1.0);
-
     glBegin(GL_POINTS);
     for (int i = 0; i < num_points_0; ++i) {
         glColor3f(colorarray0[i*3], colorarray0[i*3+1], colorarray0[i*3+2]);
@@ -287,14 +218,12 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
 
     return data;
-
 }
 
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
         render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
     }
-
 }
 
 static int decode_frame_RGB(Decoder *decoder){
@@ -333,7 +262,6 @@ static int decode_frame_RGB(Decoder *decoder){
     return out_height;
 }
 
-
 static int decode_frame(Decoder *decoder){
     int len, got_frame;
     len = avcodec_decode_video2(decoder->c, decoder->frame, &got_frame, &decoder->avpkt);
@@ -343,8 +271,6 @@ static int decode_frame(Decoder *decoder){
     }
     if (got_frame) {
         //copy the frame into our placeholder structure
-        // frames[decoder->id][decoder->frame_count]=av_frame_clone(decoder->frame);
-
         //can we directly convert it to a RGB frame ?
         decode_frame_RGB(decoder);
     }
@@ -381,7 +307,6 @@ static void decode_video_frame(Decoder *dcrs)
         av_free(dcrs[i].c);
         av_frame_free(&dcrs[i].frame);
     }
-
 }
 
 static void encode_video(Encoder *enc){
@@ -475,16 +400,10 @@ static void encode_video(Encoder *enc){
 void setUpOpenGL(){
     glClearColor(0,0,0,0);
     glClearDepth(1.0f);
-    // Set up array buffers
-    glGenBuffers(1, &vboId);
-    glBindBuffer(GL_ARRAY_BUFFER, vboId);
-    glGenBuffers(1, &cboId);
-    glBindBuffer(GL_ARRAY_BUFFER, cboId);
-
-/*  select clearing (background) color       */
+    /* select clearing (background) color*/
     glClearColor (0.0, 0.0, 0.0, 0.0);
 
-/*  initialize viewing values  */
+    /* initialize viewing values */
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glOrtho(0.0, 1.0, 0.0, 1.0, -1.0, 1.0);
