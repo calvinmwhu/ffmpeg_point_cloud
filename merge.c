@@ -186,12 +186,9 @@ static void getRGB(RGBColor *pixel, AVFrame *frame, int x, int y){
 
     // printf("%d  %d  %d\n", (int)Y, (int)U, (int)V );
     // RGB conversion
-    // pixel->r = Y + 1.402*(V-128);
-    // pixel->g = Y - 0.344*(U-128) - 0.714*(V-128);
-    // pixel->b = Y + 1.772*(U-128);
-    pixel->r = Y + 1.140*V;
-    pixel->g = Y - 0.395*U - 0.581*V;
-    pixel->b = Y + 2.032*U;
+    pixel->r = Y + 1.402*(V-128);
+    pixel->g = Y - 0.344*(U-128) - 0.714*(V-128);
+    pixel->b = Y + 1.772*(U-128);
 }
 
 static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* destDepth, AVFrame *frameDepth){
@@ -204,9 +201,11 @@ static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* de
     for(y=0; y<frameColor->height; y++){
         for(x=0; x<frameColor->width; x++){
             getRGB(&pixel, frameColor, x ,y);
-            if((int)pixel.r==0 && (int)pixel.g==255 && (int)pixel.b==0){
+            // printf("%d  %d  %d\n", (int)pixel.r, (int)pixel.g, (int)pixel.b);
+            if((int)pixel.r==13 && (int)pixel.g==237 && (int)pixel.b==13){
                 continue;
-            }            
+            }          
+            // printf("%d  %d  %d\n", (int)pixel.r, (int)pixel.g, (int)pixel.b);  
             num++;
             *fdestColor++ = ((float)pixel.r)/255.f;
             *fdestColor++ = ((float)pixel.g)/255.f;
@@ -251,9 +250,9 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
 
     GLubyte *data = malloc(3 * WIDTH * HEIGHT);
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
-
     return data;
-
+    
+    // return NULL;
 }
 
 static void render_scene(){
