@@ -214,10 +214,13 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
 
     glFlush();
 
-    GLubyte *data = malloc(3 * WIDTH * HEIGHT);
-    glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
+    //retrieve frame data for encoder
+    // GLubyte *data = malloc(3 * WIDTH * HEIGHT);
+    // glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
+    // return data;
 
-    return data;
+    //for rendering purpose only, we don't need the actually frame data
+    return NULL;
 }
 
 static void render_scene(){
@@ -243,8 +246,7 @@ static int decode_frame_RGB(Decoder *decoder){
             rgbFrame->width,
             rgbFrame->height,
             rgbFrame->format,
-            SWS_BICUBIC,
-            NULL,NULL,NULL
+            SWS_BICUBIC, NULL, NULL, NULL
         );
     int out_height = sws_scale(
         rgbCtx,
@@ -453,13 +455,13 @@ int main(int argc, char **argv)
 
     // printf("%d\n", total_frames);
 
-    Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
-    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, total_frames);
-    encode_video(enc);
+    // Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
+    // init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, total_frames);
+    // encode_video(enc);
 
-    // glutDisplayFunc(render_scene); 
-    // glutIdleFunc(render_scene);
-    // glutMainLoop();
+    glutDisplayFunc(render_scene); 
+    glutIdleFunc(render_scene);
+    glutMainLoop();
 
     return 0;
 }
