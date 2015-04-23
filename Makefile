@@ -1,5 +1,5 @@
 CC = gcc
-LIB = -lavcodec -lavformat -lavfilter -lavutil -lswresample -lswscale -framework GLUT -framework OpenGL -framework Cocoa
+LIB = -lavcodec -lavformat -lavfilter -lavutil -lswresample -lswscale -lGL -lGLU -lglut -lGLEW
 FLAG = -c -Wno-deprecated
 all: merge
 
