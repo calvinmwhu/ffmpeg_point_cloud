@@ -13,8 +13,8 @@
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+// #include <glm/glm.hpp>
+// #include <glm/gtc/matrix_transform.hpp>
 
 
 #define INBUF_SIZE 4096
@@ -104,7 +104,7 @@ static void init_decoder(Decoder *dcrs){
     }
 }
 
-static void init_encoder(Encoder *enc, int codec_id, int number_frames){
+static void init_encoder(Encoder *enc, AVCodecID codec_id, int number_frames){
     enc->number_frames=number_frames;
     enc->codec = avcodec_find_encoder(codec_id);
     enc->filename = "output.mpg";
@@ -238,7 +238,7 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
 
     glFlush();
 
-    GLubyte *data = malloc(3 * WIDTH * HEIGHT);
+    GLubyte *data = (GLubyte*)malloc(3 * WIDTH * HEIGHT);
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
     return data;
     
