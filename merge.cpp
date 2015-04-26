@@ -1,20 +1,24 @@
-#include <math.h>
-#include <stdio.h>
-#include <string.h>
-#include <limits.h>
-#include <libavutil/opt.h>
-#include <libavcodec/avcodec.h>
-#include <libavutil/channel_layout.h>
-#include <libavutil/common.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/mathematics.h>
-#include <libavutil/samplefmt.h>
-#include <libswscale/swscale.h>
+extern "C" {
+  // Get declaration for f(int i, char c, float x)
+    #include <math.h>
+    #include <stdio.h>
+    #include <string.h>
+    #include <limits.h>
+    #include <libavutil/opt.h>
+    #include <libavcodec/avcodec.h>
+    #include <libavutil/channel_layout.h>
+    #include <libavutil/common.h>
+    #include <libavutil/imgutils.h>
+    #include <libavutil/mathematics.h>
+    #include <libavutil/samplefmt.h>
+    #include <libswscale/swscale.h>
+}
+
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
-// #include <glm/glm.hpp>
-// #include <glm/gtc/matrix_transform.hpp>
+#include "glm/glm.hpp"
+#include "glm/gtc/matrix_transform.hpp"
 
 
 #define INBUF_SIZE 4096
@@ -60,6 +64,7 @@ typedef struct Encoder_t{
     const char* filename;
     AVFrame *frame;
     AVPacket pkt;
+    float angles[2];
 }Encoder;
 
 static void init_decoder(Decoder *dcrs){
@@ -104,7 +109,9 @@ static void init_decoder(Decoder *dcrs){
     }
 }
 
-static void init_encoder(Encoder *enc, AVCodecID codec_id, int number_frames){
+static void init_encoder(Encoder *enc, AVCodecID codec_id, int number_frames, float angle1, float angle2){
+    enc->angles[0]=angle1;
+    enc->angles[1]=angle2;
     enc->number_frames=number_frames;
     enc->codec = avcodec_find_encoder(codec_id);
     enc->filename = "output.mpg";
@@ -438,7 +445,7 @@ int main(int argc, char **argv)
     // printf("%d\n", total_frames);
 
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
-    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, total_frames);
+    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, total_frames, 45.0, 45.0);
     encode_video(enc);
 
     // glutDisplayFunc(render_scene); 
