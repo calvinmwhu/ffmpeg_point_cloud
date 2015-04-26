@@ -38,6 +38,9 @@ float vertexarray0[WIDTH*HEIGHT*3];
 float colorarray1[WIDTH*HEIGHT*3];
 float vertexarray1[WIDTH*HEIGHT*3];
 
+float colorarray[WIDTH*HEIGHT*6];
+float vertexarray[WIDTH*HEIGHT*6];
+
 typedef struct RGBColor_t{
     uint8_t r;
     uint8_t g;
@@ -66,6 +69,16 @@ typedef struct Encoder_t{
     AVPacket pkt;
     float angles[2];
 }Encoder;
+
+
+
+void transformPointCloud(glm::vec4 &V, const float angle){
+    glm::mat4 transform = glm::mat4(1.0f);
+    transform = glm::rotate(transform, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+    
+    V=transform*V;
+}
+
 
 static void init_decoder(Decoder *dcrs){
     dcrs[0].filename="color0.mpg";
@@ -216,7 +229,6 @@ static int getColorAndCoordData(float* destColor, AVFrame *frameColor, float* de
     return num;
 }
 
-
 static void getDataForFrame(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, int *num_points_0, int *num_points_1){
     *num_points_0 = getColorAndCoordData(colorarray0, colorFrame0, vertexarray0, depthFrame0);
     *num_points_1 = getColorAndCoordData(colorarray1, colorFrame1, vertexarray1, depthFrame1);
@@ -251,6 +263,71 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
     
     // return NULL;
 }
+
+static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, float* &fdestDepth, AVFrame *frameDepth, float angle){
+    RGBColor pixel;
+    memset(&pixel, 0, sizeof(RGBColor));
+    int x,y;
+    int active_points = 0;
+    for(y=0; y<frameColor->height; y++){
+        for(x=0; x<frameColor->width; x++){
+            getRGB(&pixel, frameColor, x ,y);
+            // printf("%d  %d  %d\n", (int)pixel.r, (int)pixel.g, (int)pixel.b);
+            if((int)pixel.r==13 && (int)pixel.g==237 && (int)pixel.b==13){
+                continue;
+            }          
+            active_points++;
+            *fdestColor++ = ((float)pixel.r)/255.f;
+            *fdestColor++ = ((float)pixel.g)/255.f;
+            *fdestColor++ = ((float)pixel.b)/255.f;
+
+            float x_ = ((float)x)/frameColor->width;
+            float y_ = ((float)y)/frameColor->height;
+            uint8_t Y = frameDepth->data[0][y*frameDepth->linesize[0]+x];
+            float z_ = Y/255.f;   
+            glm::vec4 V = glm::vec4(x_, y_, z_, 1.0f);
+            transformPointCloud(V, angle);
+            *fdestDepth++= V.x;
+            *fdestDepth++= V.y;
+            *fdestDepth++= V.z;
+        }
+    }
+    return active_points;
+}
+
+static int getDataForFrame_new(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, float angle0, float angle1){
+    float *fdestColor = colorarray;
+    float *fdestDepth = vertexarray;
+    int num_points = 0;
+    num_points+=getColorAndCoordData_new(fdestColor, colorFrame0, fdestDepth, depthFrame0, angle0);
+    num_points+=getColorAndCoordData_new(fdestColor, colorFrame1, fdestDepth, depthFrame1, angle1);
+    return num_points;
+}
+
+static GLubyte* render_new(Encoder *enc ,AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
+    int num_points=getDataForFrame_new(colorFrame0, depthFrame0, colorFrame1, depthFrame1, enc->angles[0], enc->angles[1]);
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glBegin(GL_POINTS);
+    for (int i = 0; i < num_points; ++i) {
+        glColor3f(colorarray[i*3], colorarray[i*3+1], colorarray[i*3+2]);
+        glVertex3f(vertexarray[i*3], vertexarray[i*3+1], vertexarray[i*3+2]);
+    }
+    glEnd();   
+    glutSwapBuffers();
+
+    glFlush();
+
+    GLubyte *data = (GLubyte*)malloc(3 * WIDTH * HEIGHT);
+    glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
+    return data;
+    
+    // return NULL;
+}
+
+
+
 
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
@@ -319,7 +396,9 @@ static void encode_video(Encoder *enc){
         fflush(stdout);
 
         //prepare image:
-        GLubyte* data=render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
+        // GLubyte* data=render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
+        GLubyte* data=render_new(enc, frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
+
         for(y=0; y<enc->c->height; y++){
             for(x=0; x<enc->c->width; x++){
                 GLubyte *from = data+(y*enc->c->width+x)*3;
