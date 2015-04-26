@@ -13,6 +13,9 @@
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 
 #define INBUF_SIZE 4096
 #define WIDTH 640
@@ -22,7 +25,6 @@
 
 GLuint vboId; // Vertex buffer ID
 GLuint cboId; // Color buffer ID
-
 
 AVFrame *frames[MAX_NUM_STREAM][FPS];
 
@@ -101,18 +103,6 @@ static void init_decoder(Decoder *dcrs){
         dcrs[i].frame_count = 0;
     }
 }
-
-// typedef struct Encoder_t{
-//     AVCodec *codec;
-//     AVCodecContext *c;
-//     // int i, ret, x, y, got_output;
-//     FILE *f;
-//     const char* filename;
-//     AVFrame *frame;
-//     AVPacket pkt;
-//     uint8_t endcode[] ;
-// }Encoder;
-
 
 static void init_encoder(Encoder *enc, int codec_id, int number_frames){
     enc->number_frames=number_frames;
@@ -348,19 +338,6 @@ static void encode_video(Encoder *enc){
             }
         }
 
-        //  for (y = 0; y < enc->c->height; y++) {
-        //     for (x = 0; x < enc->c->width; x++) {
-        //         enc->frame->data[0][y * enc->frame->linesize[0] + x] = x + y + i * 3;
-        //     }
-        // }
-        // /* Cb and Cr */
-        // for (y = 0; y < enc->c->height/2; y++) {
-        //     for (x = 0; x < enc->c->width/2; x++) {
-        //         enc->frame->data[1][y * enc->frame->linesize[1] + x] = 128 + y + i * 2;
-        //         enc->frame->data[2][y * enc->frame->linesize[2] + x] = 64 + x + i * 5;
-        //     }
-        // }
-
         enc->frame->pts = i;
         /* encode the image */
         ret = avcodec_encode_video2(enc->c, &enc->pkt, enc->frame, &got_output);
@@ -397,8 +374,6 @@ static void encode_video(Encoder *enc){
     av_frame_free(&enc->frame);
     printf("\n");
 }
-
-
 
 void setUpOpenGL(){
     glClearColor(0,0,0,0);
