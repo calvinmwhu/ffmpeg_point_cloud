@@ -261,7 +261,6 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
     return data;
     
-    // return NULL;
 }
 
 static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, float* &fdestDepth, AVFrame *frameDepth, float angle){
@@ -272,7 +271,6 @@ static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, flo
     for(y=0; y<frameColor->height; y++){
         for(x=0; x<frameColor->width; x++){
             getRGB(&pixel, frameColor, x ,y);
-            // printf("%d  %d  %d\n", (int)pixel.r, (int)pixel.g, (int)pixel.b);
             if((int)pixel.r==13 && (int)pixel.g==237 && (int)pixel.b==13){
                 continue;
             }          
@@ -286,7 +284,7 @@ static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, flo
             uint8_t Y = frameDepth->data[0][y*frameDepth->linesize[0]+x];
             float z_ = Y/255.f;   
             glm::vec4 V = glm::vec4(x_, y_, z_, 1.0f);
-            transformPointCloud(V, angle);
+            // transformPointCloud(V, angle);
             *fdestDepth++= V.x;
             *fdestDepth++= V.y;
             *fdestDepth++= V.z;
@@ -325,9 +323,6 @@ static GLubyte* render_new(Encoder *enc ,AVFrame *colorFrame0, AVFrame *depthFra
     
     // return NULL;
 }
-
-
-
 
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
@@ -432,7 +427,7 @@ static void encode_video(Encoder *enc){
             exit(1);
         }
         if (got_output) {
-            printf("Write frame %3d (size=%5d)\n", i, enc->pkt.size);
+            // printf("Write frame %3d (size=%5d)\n", i, enc->pkt.size);
             fwrite(enc->pkt.data, 1, enc->pkt.size, enc->f);
             av_free_packet(&enc->pkt);
         }
@@ -491,10 +486,6 @@ int main(int argc, char **argv)
     avcodec_register_all();
     setUpOpenGL();
 
-    // frames = (AVFrame**)malloc(4*sizeof(AVFrame*));
-    // for(int i=0; i<4; i++){
-    //     frames[i]=(AVFrame*)malloc(30*sizeof(AVFrame));
-    // }
     for(int i=0; i<MAX_NUM_STREAM; i++){
         for(int j=0; j<FPS; j++){
             frames[i][j]=NULL;
@@ -506,7 +497,6 @@ int main(int argc, char **argv)
     Decoder *dcrs = (Decoder*)malloc(MAX_NUM_STREAM*sizeof(Decoder));
     init_decoder(dcrs);
     decode_video_frame(dcrs);
-
 
     if(total_frames>dcrs[0].frame_count){
         total_frames=dcrs[0].frame_count;
