@@ -67,7 +67,7 @@ typedef struct Encoder_t{
     const char* filename;
     AVFrame *frame;
     AVPacket pkt;
-    float angles[2];
+    float view_angle;
 }Encoder;
 
 
@@ -123,8 +123,8 @@ static void init_decoder(Decoder *dcrs){
 }
 
 static void init_encoder(Encoder *enc, AVCodecID codec_id, int number_frames, float angle1, float angle2){
-    enc->angles[0]=angle1;
-    enc->angles[1]=angle2;
+    // enc->angles[0]=angle1;
+    // enc->angles[1]=angle2;
     enc->number_frames=number_frames;
     enc->codec = avcodec_find_encoder(codec_id);
     enc->filename = "output.mpg";
@@ -263,7 +263,7 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
     
 }
 
-static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, float* &fdestDepth, AVFrame *frameDepth, float angle){
+static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, float* &fdestDepth, AVFrame *frameDepth, bool main_camera){
     RGBColor pixel;
     memset(&pixel, 0, sizeof(RGBColor));
     int x,y;
@@ -283,27 +283,31 @@ static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, flo
             float y_ = ((float)y)/frameColor->height;
             uint8_t Y = frameDepth->data[0][y*frameDepth->linesize[0]+x];
             float z_ = Y/255.f;   
-            glm::vec4 V = glm::vec4(x_, y_, z_, 1.0f);
+            // glm::vec4 V = glm::vec4(x_, y_, z_, 1.0f);
             // transformPointCloud(V, angle);
-            *fdestDepth++= V.x;
-            *fdestDepth++= V.y;
-            *fdestDepth++= V.z;
+            if(main_camera){
+                *fdestDepth++= x_;
+                *fdestDepth++= y_;
+                *fdestDepth++= z_;    
+            }else{
+
+            }
         }
     }
     return active_points;
 }
 
-static int getDataForFrame_new(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1, float angle0, float angle1){
+static int getDataForFrame_new(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
     float *fdestColor = colorarray;
     float *fdestDepth = vertexarray;
     int num_points = 0;
-    num_points+=getColorAndCoordData_new(fdestColor, colorFrame0, fdestDepth, depthFrame0, angle0);
-    num_points+=getColorAndCoordData_new(fdestColor, colorFrame1, fdestDepth, depthFrame1, angle1);
+    num_points+=getColorAndCoordData_new(fdestColor, colorFrame0, fdestDepth, depthFrame0, true);
+    num_points+=getColorAndCoordData_new(fdestColor, colorFrame1, fdestDepth, depthFrame1, true);
     return num_points;
 }
 
 static GLubyte* render_new(Encoder *enc ,AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colorFrame1, AVFrame *depthFrame1){
-    int num_points=getDataForFrame_new(colorFrame0, depthFrame0, colorFrame1, depthFrame1, enc->angles[0], enc->angles[1]);
+    int num_points=getDataForFrame_new(colorFrame0, depthFrame0, colorFrame1, depthFrame1);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
