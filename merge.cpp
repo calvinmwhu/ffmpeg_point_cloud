@@ -259,8 +259,7 @@ static GLubyte* render(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFrame *colo
 
     GLubyte *data = (GLubyte*)malloc(3 * WIDTH * HEIGHT);
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
-    return data;
-    
+    return data;   
 }
 
 static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, float* &fdestDepth, AVFrame *frameDepth, bool main_camera){
@@ -290,7 +289,10 @@ static int getColorAndCoordData_new(float* &fdestColor, AVFrame *frameColor, flo
                 *fdestDepth++= y_;
                 *fdestDepth++= z_;    
             }else{
-
+                //transform coordinate
+                *fdestDepth++ = 1-z_;
+                *fdestDepth++ = y_;
+                *fdestDepth++ = 1-x_;
             }
         }
     }
@@ -302,7 +304,7 @@ static int getDataForFrame_new(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFra
     float *fdestDepth = vertexarray;
     int num_points = 0;
     num_points+=getColorAndCoordData_new(fdestColor, colorFrame0, fdestDepth, depthFrame0, true);
-    num_points+=getColorAndCoordData_new(fdestColor, colorFrame1, fdestDepth, depthFrame1, true);
+    num_points+=getColorAndCoordData_new(fdestColor, colorFrame1, fdestDepth, depthFrame1, false);
     return num_points;
 }
 
@@ -324,15 +326,12 @@ static GLubyte* render_new(Encoder *enc ,AVFrame *colorFrame0, AVFrame *depthFra
     GLubyte *data = (GLubyte*)malloc(3 * WIDTH * HEIGHT);
     glReadPixels(0, 0, WIDTH, HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, data);
     return data;
-    
-    // return NULL;
 }
 
 static void render_scene(){
     for(int i=0; i<total_frames; i++){
         render(frames[0][i], frames[1][i], frames[2][i], frames[3][i]);
     }
-
 }
 
 static int decode_frame(Decoder *decoder){
