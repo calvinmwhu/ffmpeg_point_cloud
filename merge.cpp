@@ -14,6 +14,8 @@ extern "C" {
     #include <libswscale/swscale.h>
 }
 
+#include <iostream>
+#include <vector>
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
@@ -26,6 +28,9 @@ extern "C" {
 #define HEIGHT 480
 #define FPS 30
 #define MAX_NUM_STREAM 4
+
+typedef std::vector<uint8_t> buffer_type;
+buffer_type output_video;
 
 GLuint vboId; // Vertex buffer ID
 GLuint cboId; // Color buffer ID
@@ -63,7 +68,7 @@ typedef struct Encoder_t{
     AVCodec *codec;
     AVCodecContext *c;
     int number_frames;
-    FILE *f;
+    // FILE *f;
     const char* filename;
     AVFrame *frame;
     AVPacket pkt;
@@ -81,10 +86,19 @@ void transformPointCloud(glm::vec4 &V, const float angle){
 
 
 static void init_decoder(Decoder *dcrs){
-    dcrs[0].filename="color0.mpg";
-    dcrs[1].filename="depth0.mpg";
-    dcrs[2].filename="color1.mpg";
-    dcrs[3].filename="depth1.mpg";
+    dcrs[0].filename="clips/color0_0.mpg";
+    dcrs[1].filename="clips/depth0_0.mpg";
+    dcrs[2].filename="clips/color1_0.mpg";
+    dcrs[3].filename="clips/depth1_0.mpg";
+
+    // dcrs[0].filename="output_color_0.mpg";
+    // dcrs[1].filename="output_depth_0.mpg";
+    // dcrs[2].filename="output_color_1.mpg";
+    // dcrs[3].filename="output_depth_1.mpg";
+
+    
+
+
     for(int i=0;i<MAX_NUM_STREAM; i++){
         dcrs[i].id=i;
         /* find the mpeg1 video decoder */
@@ -122,10 +136,8 @@ static void init_decoder(Decoder *dcrs){
     }
 }
 
-static void init_encoder(Encoder *enc, AVCodecID codec_id, int number_frames, float angle1, float angle2){
-    // enc->angles[0]=angle1;
-    // enc->angles[1]=angle2;
-    enc->number_frames=number_frames;
+static void init_encoder(Encoder *enc, AVCodecID codec_id){
+    // enc->number_frames=number_frames;
     enc->codec = avcodec_find_encoder(codec_id);
     enc->filename = "output.mpg";
     printf("encoding video file %s \n", enc->filename);
@@ -161,11 +173,11 @@ static void init_encoder(Encoder *enc, AVCodecID codec_id, int number_frames, fl
         fprintf(stderr, "Could not open codec\n");
         exit(1);
     }
-    enc->f = fopen(enc->filename, "wb");
-    if (!enc->f) {
-        fprintf(stderr, "Could not open %s\n", enc->filename);
-        exit(1);
-    }
+    // enc->f = fopen(enc->filename, "wb");
+    // if (!enc->f) {
+    //     fprintf(stderr, "Could not open %s\n", enc->filename);
+    //     exit(1);
+    // }
     enc->frame = av_frame_alloc();
     if (!enc->frame) {
         fprintf(stderr, "Could not allocate video frame\n");
@@ -304,7 +316,7 @@ static int getDataForFrame_new(AVFrame *colorFrame0, AVFrame *depthFrame0, AVFra
     float *fdestDepth = vertexarray;
     int num_points = 0;
     num_points+=getColorAndCoordData_new(fdestColor, colorFrame0, fdestDepth, depthFrame0, true);
-    num_points+=getColorAndCoordData_new(fdestColor, colorFrame1, fdestDepth, depthFrame1, false);
+    num_points+=getColorAndCoordData_new(fdestColor, colorFrame1, fdestDepth, depthFrame1, true);
     return num_points;
 }
 
@@ -384,6 +396,10 @@ static void decode_video_frame(Decoder *dcrs)
 
 }
 
+static void add_data_to_memory(uint8_t* data, int size){
+    output_video.insert(output_video.end(), data, data+size);
+}
+
 static void encode_video(Encoder *enc){
     uint8_t endcode[] = { 0, 0, 1, 0xb7 };
     int ret, x,y, i,got_output;
@@ -431,7 +447,8 @@ static void encode_video(Encoder *enc){
         }
         if (got_output) {
             // printf("Write frame %3d (size=%5d)\n", i, enc->pkt.size);
-            fwrite(enc->pkt.data, 1, enc->pkt.size, enc->f);
+            // fwrite(enc->pkt.data, 1, enc->pkt.size, enc->f);
+            add_data_to_memory(enc->pkt.data, enc->pkt.size);
             av_free_packet(&enc->pkt);
         }
     }
@@ -444,14 +461,16 @@ static void encode_video(Encoder *enc){
             exit(1);
         }
         if (got_output) {
-            printf("Write frame %3d (size=%5d)\n", i, enc->pkt.size);
-            fwrite(enc->pkt.data, 1, enc->pkt.size, enc->f);
+            // printf("Write frame %3d (size=%5d)\n", i, enc->pkt.size);
+            // fwrite(enc->pkt.data, 1, enc->pkt.size, enc->f);
+            add_data_to_memory(enc->pkt.data, enc->pkt.size);
             av_free_packet(&enc->pkt);
         }
     }
     /* add sequence end code to have a real mpeg file */
-    fwrite(endcode, 1, sizeof(endcode), enc->f);
-    fclose(enc->f);
+    // fwrite(endcode, 1, sizeof(endcode), enc->f);
+    add_data_to_memory(endcode, sizeof(endcode));
+    // fclose(enc->f);
     avcodec_close(enc->c);
     av_free(enc->c);
     av_freep(&enc->frame->data[0]);
@@ -478,6 +497,10 @@ void setUpOpenGL(){
 
 }
 
+static void run_server(){
+
+}
+
 int main(int argc, char **argv)
 {
     glutInit(&argc, argv);
@@ -501,25 +524,32 @@ int main(int argc, char **argv)
     init_decoder(dcrs);
     decode_video_frame(dcrs);
 
-    if(total_frames>dcrs[0].frame_count){
-        total_frames=dcrs[0].frame_count;
-    }
-    if(total_frames>dcrs[1].frame_count){
-        total_frames=dcrs[1].frame_count;
-    }
-    if(total_frames>dcrs[2].frame_count){
-        total_frames=dcrs[2].frame_count;
-    }
-    if(total_frames>dcrs[3].frame_count){
-        total_frames=dcrs[3].frame_count;
-    }
+    // if(total_frames>dcrs[0].frame_count){
+    //     total_frames=dcrs[0].frame_count;
+    // }
+    // if(total_frames>dcrs[1].frame_count){
+    //     total_frames=dcrs[1].frame_count;
+    // }
+    // if(total_frames>dcrs[2].frame_count){
+    //     total_frames=dcrs[2].frame_count;
+    // }
+    // if(total_frames>dcrs[3].frame_count){
+    //     total_frames=dcrs[3].frame_count;
+    // }
 
-    // printf("%d\n", total_frames);
 
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
-    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, total_frames, 45.0, 45.0);
+    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO);
     encode_video(enc);
 
+
+    printf("%lu\n", output_video.size());
+
+    FILE *output;
+    output = fopen("output_to_disk.mpg", "wb");
+    fwrite(&output_video[0], 1, output_video.size(), output);
+    fclose(output);
+    
     // glutDisplayFunc(render_scene); 
     // glutIdleFunc(render_scene);
     // glutMainLoop();
