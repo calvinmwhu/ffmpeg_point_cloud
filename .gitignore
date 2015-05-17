@@ -1,6 +1,7 @@
 *.webm
 opengl
 temp
+output*
 *.mpg
 result
 merge.o

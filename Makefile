@@ -10,4 +10,4 @@ merge.o: merge.cpp
 	$(CC) $(FLAG) merge.cpp
 
 clean:
-	rm -rf *.o merge output.mpg
+	rm -rf *.o merge outputs/*

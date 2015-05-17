@@ -58,7 +58,7 @@ typedef struct Decoder_t{
     AVCodecContext *c;
     int frame_count;
     FILE *f;
-    const char* filename;
+    char filename[100];
     AVFrame *frame;
     uint8_t inbuf[INBUF_SIZE + FF_INPUT_BUFFER_PADDING_SIZE];
     AVPacket avpkt;
@@ -68,13 +68,9 @@ typedef struct Encoder_t{
     AVCodec *codec;
     AVCodecContext *c;
     int number_frames;
-    // FILE *f;
-    const char* filename;
     AVFrame *frame;
     AVPacket pkt;
-    float view_angle;
 }Encoder;
-
 
 
 void transformPointCloud(glm::vec4 &V, const float angle){
@@ -84,73 +80,33 @@ void transformPointCloud(glm::vec4 &V, const float angle){
     V=transform*V;
 }
 
+static void allocate_atx_and_frame_for_decoder(Decoder *d){
+    d->c = avcodec_alloc_context3(d->codec);
+    if(!d->c){
+        fprintf(stderr, "Could not allocate video codec context\n");
+        exit(1);
+    }
+    if(d->codec->capabilities&CODEC_CAP_TRUNCATED){
+        d->c->flags|= CODEC_FLAG_TRUNCATED; 
+    }
+    if(avcodec_open2(d->c, d->codec, NULL) < 0) {
+        fprintf(stderr, "Could not open codec\n");
+        exit(1);
+    }
 
-static void init_decoder(Decoder *dcrs){
-    dcrs[0].filename="clips/color0_0.mpg";
-    dcrs[1].filename="clips/depth0_0.mpg";
-    dcrs[2].filename="clips/color1_0.mpg";
-    dcrs[3].filename="clips/depth1_0.mpg";
-
-    // dcrs[0].filename="output_color_0.mpg";
-    // dcrs[1].filename="output_depth_0.mpg";
-    // dcrs[2].filename="output_color_1.mpg";
-    // dcrs[3].filename="output_depth_1.mpg";
-
-    
-
-
-    for(int i=0;i<MAX_NUM_STREAM; i++){
-        dcrs[i].id=i;
-        /* find the mpeg1 video decoder */
-        dcrs[i].codec = avcodec_find_decoder(AV_CODEC_ID_MPEG1VIDEO);
-        if (!dcrs[i].codec) {
-            fprintf(stderr, "Codec not found\n");
-            exit(1);
-        }
-        av_init_packet(&dcrs[i].avpkt);
-        memset(dcrs[i].inbuf + INBUF_SIZE, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-        
-        dcrs[i].c = avcodec_alloc_context3(dcrs[i].codec);
-        if(!dcrs[i].c){
-            fprintf(stderr, "Could not allocate video codec context\n");
-            exit(1);
-        }
-        if(dcrs[i].codec->capabilities&CODEC_CAP_TRUNCATED){
-            dcrs[i].c->flags|= CODEC_FLAG_TRUNCATED; 
-        }
-        if(avcodec_open2(dcrs[i].c, dcrs[i].codec, NULL) < 0) {
-            fprintf(stderr, "Could not open codec\n");
-            exit(1);
-        }
-        dcrs[i].f = fopen(dcrs[i].filename, "rb");
-        if (!dcrs[i].f) {
-            fprintf(stderr, "Could not open %s\n", dcrs[i].filename);
-            exit(1);
-        }
-        dcrs[i].frame = av_frame_alloc();
-        if (!dcrs[i].frame) {
-            fprintf(stderr, "Could not allocate video frame\n");
-            exit(1);
-        }
-        dcrs[i].frame_count = 0;
+    d->frame = av_frame_alloc();
+    if (!d->frame) {
+        fprintf(stderr, "Could not allocate video frame\n");
+        exit(1);
     }
 }
 
-static void init_encoder(Encoder *enc, AVCodecID codec_id){
-    // enc->number_frames=number_frames;
-    enc->codec = avcodec_find_encoder(codec_id);
-    enc->filename = "output.mpg";
-    printf("encoding video file %s \n", enc->filename);
-    if (!enc->codec) {
-        fprintf(stderr, "Codec not found\n");
-        exit(1);
-    }
+static void allocate_atx_and_frame_for_encoder(Encoder *enc, AVCodecID codec_id){
     enc->c = avcodec_alloc_context3(enc->codec);
     if (!enc->c) {
         fprintf(stderr, "Could not allocate video codec context\n");
         exit(1);
     }
-
     enc->c->bit_rate = 400000;
     /* resolution must be a multiple of two */
     enc->c->width = WIDTH;
@@ -173,11 +129,6 @@ static void init_encoder(Encoder *enc, AVCodecID codec_id){
         fprintf(stderr, "Could not open codec\n");
         exit(1);
     }
-    // enc->f = fopen(enc->filename, "wb");
-    // if (!enc->f) {
-    //     fprintf(stderr, "Could not open %s\n", enc->filename);
-    //     exit(1);
-    // }
     enc->frame = av_frame_alloc();
     if (!enc->frame) {
         fprintf(stderr, "Could not allocate video frame\n");
@@ -193,6 +144,32 @@ static void init_encoder(Encoder *enc, AVCodecID codec_id){
         fprintf(stderr, "Could not allocate raw picture buffer\n");
         exit(1);
     }
+}
+
+static void init_decoder(Decoder *dcrs){  
+    for(int i=0;i<MAX_NUM_STREAM; i++){
+        dcrs[i].id=i;
+        /* find the mpeg1 video decoder */
+        dcrs[i].codec = avcodec_find_decoder(AV_CODEC_ID_MPEG1VIDEO);
+        if (!dcrs[i].codec) {
+            fprintf(stderr, "Codec not found\n");
+            exit(1);
+        }
+        av_init_packet(&dcrs[i].avpkt);
+        memset(dcrs[i].inbuf + INBUF_SIZE, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+        dcrs[i].frame_count = 0;
+    }
+}
+
+
+static void init_encoder(Encoder *enc, AVCodecID codec_id){
+    enc->codec = avcodec_find_encoder(codec_id);
+    if (!enc->codec) {
+        fprintf(stderr, "Codec not found\n");
+        exit(1);
+    }
+
+    // allocate_atx_and_frame_for_encoder(enc, codec_id);
 }
 
 static void getRGB(RGBColor *pixel, AVFrame *frame, int x, int y){
@@ -387,8 +364,8 @@ static void decode_video_frame(Decoder *dcrs)
 
         dcrs[i].avpkt.data = NULL;
         dcrs[i].avpkt.size = 0;
+        dcrs[i].frame_count=0;
         decode_frame(&dcrs[i]);
-        fclose(dcrs[i].f);
         avcodec_close(dcrs[i].c);
         av_free(dcrs[i].c);
         av_frame_free(&dcrs[i].frame);
@@ -401,7 +378,7 @@ static void add_data_to_memory(uint8_t* data, int size){
 }
 
 static void encode_video(Encoder *enc){
-    uint8_t endcode[] = { 0, 0, 1, 0xb7 };
+    uint8_t endcode[] = { 0, 0, 1, 0xb7};
     int ret, x,y, i,got_output;
     for (i = 0; i < 25; i++) {
         av_init_packet(&enc->pkt);
@@ -447,7 +424,6 @@ static void encode_video(Encoder *enc){
         }
         if (got_output) {
             // printf("Write frame %3d (size=%5d)\n", i, enc->pkt.size);
-            // fwrite(enc->pkt.data, 1, enc->pkt.size, enc->f);
             add_data_to_memory(enc->pkt.data, enc->pkt.size);
             av_free_packet(&enc->pkt);
         }
@@ -462,20 +438,17 @@ static void encode_video(Encoder *enc){
         }
         if (got_output) {
             // printf("Write frame %3d (size=%5d)\n", i, enc->pkt.size);
-            // fwrite(enc->pkt.data, 1, enc->pkt.size, enc->f);
             add_data_to_memory(enc->pkt.data, enc->pkt.size);
             av_free_packet(&enc->pkt);
         }
     }
     /* add sequence end code to have a real mpeg file */
-    // fwrite(endcode, 1, sizeof(endcode), enc->f);
     add_data_to_memory(endcode, sizeof(endcode));
-    // fclose(enc->f);
+    
     avcodec_close(enc->c);
     av_free(enc->c);
     av_freep(&enc->frame->data[0]);
     av_frame_free(&enc->frame);
-    printf("\n");
 }
 
 void setUpOpenGL(){
@@ -497,8 +470,38 @@ void setUpOpenGL(){
 
 }
 
-static void run_server(){
+static void run_server(Decoder *dcrs, Encoder *enc){
+    FILE *output;    
+    char output_name[100];
+    //start processing video clips from 0 to 59
+    for(int i=0; i<60; i++){
+        for(int j=0; j<MAX_NUM_STREAM; j++){
+            allocate_atx_and_frame_for_decoder(&dcrs[j]);
+            allocate_atx_and_frame_for_encoder(enc, AV_CODEC_ID_MPEG1VIDEO);
+        }
+        sprintf(dcrs[0].filename, "clips/color0_%d.mpg", i);
+        sprintf(dcrs[1].filename, "clips/depth0_%d.mpg", i);
+        sprintf(dcrs[2].filename, "clips/color1_%d.mpg", i);
+        sprintf(dcrs[3].filename, "clips/depth1_%d.mpg", i);       
+        dcrs[0].f = fopen(dcrs[0].filename, "rb");
+        dcrs[1].f = fopen(dcrs[1].filename, "rb");
+        dcrs[2].f = fopen(dcrs[2].filename, "rb");
+        dcrs[3].f = fopen(dcrs[3].filename, "rb");
+        sprintf(output_name, "outputs/output_%d.mpg", i); 
+        
+        decode_video_frame(dcrs);
+        printf("%d\n", i);
+        encode_video(enc);
 
+        //final video clip is generated after encoding
+
+        output = fopen(output_name, "wb");
+        fwrite(&output_video[0], 1, output_video.size(), output);
+        fclose(output);
+        output_video.clear();
+        // break;
+    }
+    // fclose(output);
 }
 
 int main(int argc, char **argv)
@@ -518,37 +521,23 @@ int main(int argc, char **argv)
         }
     }
 
-    total_frames=INT_MAX;
-
     Decoder *dcrs = (Decoder*)malloc(MAX_NUM_STREAM*sizeof(Decoder));
     init_decoder(dcrs);
-    decode_video_frame(dcrs);
-
-    // if(total_frames>dcrs[0].frame_count){
-    //     total_frames=dcrs[0].frame_count;
-    // }
-    // if(total_frames>dcrs[1].frame_count){
-    //     total_frames=dcrs[1].frame_count;
-    // }
-    // if(total_frames>dcrs[2].frame_count){
-    //     total_frames=dcrs[2].frame_count;
-    // }
-    // if(total_frames>dcrs[3].frame_count){
-    //     total_frames=dcrs[3].frame_count;
-    // }
-
-
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
     init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO);
-    encode_video(enc);
+
+    run_server(dcrs, enc);
+
+    // decode_video_frame(dcrs);
+    // encode_video(enc);
 
 
-    printf("%lu\n", output_video.size());
+    // printf("%lu\n", output_video.size());
 
-    FILE *output;
-    output = fopen("output_to_disk.mpg", "wb");
-    fwrite(&output_video[0], 1, output_video.size(), output);
-    fclose(output);
+    // FILE *output;
+    // output = fopen("output_to_disk.mpg", "wb");
+    // fwrite(&output_video[0], 1, output_video.size(), output);
+    // fclose(output);
     
     // glutDisplayFunc(render_scene); 
     // glutIdleFunc(render_scene);
