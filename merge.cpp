@@ -4,6 +4,17 @@ extern "C" {
     #include <stdio.h>
     #include <string.h>
     #include <limits.h>
+    #include <stdlib.h>
+    #include <unistd.h>
+    #include <errno.h>
+    #include <sys/types.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <netdb.h>
+    #include <arpa/inet.h>
+    #include <sys/wait.h>
+    #include <signal.h>
+    #include <pthread.h>
     #include <libavutil/opt.h>
     #include <libavcodec/avcodec.h>
     #include <libavutil/channel_layout.h>
@@ -16,11 +27,11 @@ extern "C" {
 
 #include <iostream>
 #include <vector>
+#include <ctime>
+#include <string>
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
 
 
 #define INBUF_SIZE 4096
@@ -28,6 +39,8 @@ extern "C" {
 #define HEIGHT 480
 #define FPS 30
 #define MAX_NUM_STREAM 4
+const int BACKLOG = 10;
+const int MAXDATASIZE = 1024;
 
 typedef std::vector<uint8_t> buffer_type;
 buffer_type output_video;
@@ -73,12 +86,12 @@ typedef struct Encoder_t{
 }Encoder;
 
 
-void transformPointCloud(glm::vec4 &V, const float angle){
-    glm::mat4 transform = glm::mat4(1.0f);
-    transform = glm::rotate(transform, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+// void transformPointCloud(glm::vec4 &V, const float angle){
+//     glm::mat4 transform = glm::mat4(1.0f);
+//     transform = glm::rotate(transform, angle, glm::vec3(0.0f, 1.0f, 0.0f));
     
-    V=transform*V;
-}
+//     V=transform*V;
+// }
 
 static void allocate_atx_and_frame_for_decoder(Decoder *d){
     d->c = avcodec_alloc_context3(d->codec);
@@ -470,9 +483,91 @@ void setUpOpenGL(){
 
 }
 
+// get sockaddr, IPv4 or IPv6:
+void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+int listenForConnection(){
+    int sockfd, clientfd;  // listen on sock_fd, new connection on clientfd
+    struct addrinfo hints, *servinfo, *p;
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    struct sigaction sa;
+    int yes=1;
+    char s[INET6_ADDRSTRLEN];
+    int rv;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE; // use my IP
+
+    if ((rv = getaddrinfo(NULL, "8000", &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return 0;
+    }
+
+    // loop through all the results and bind to the first we can
+    for(p = servinfo; p != NULL; p = p->ai_next) {
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                p->ai_protocol)) == -1) {
+            perror("server: socket");
+            continue;
+        }
+
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
+                sizeof(int)) == -1) {
+            perror("setsockopt");
+            exit(1);
+        }
+
+        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("server: bind");
+            continue;
+        }
+
+        break;
+    }
+
+    if (p == NULL)  {
+        fprintf(stderr, "server: failed to bind\n");
+        return 0;
+    }
+
+    freeaddrinfo(servinfo); // all done with this structure
+
+    if (listen(sockfd, BACKLOG) == -1) {
+        perror("listen");
+        exit(1);
+    }
+
+    // sa.sa_handler = sigchld_handler; // reap all dead processes
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(1);
+    }
+
+    printf("server: waiting for connections...\n");
+    sin_size = sizeof their_addr;
+    clientfd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+
+    return clientfd;
+}
+
+
 static void run_server(Decoder *dcrs, Encoder *enc){
     FILE *output;    
     char output_name[100];
+    int clientfd = listenForConnection();
+
     //start processing video clips from 0 to 59
     for(int i=0; i<60; i++){
         for(int j=0; j<MAX_NUM_STREAM; j++){
@@ -490,14 +585,25 @@ static void run_server(Decoder *dcrs, Encoder *enc){
         sprintf(output_name, "outputs/output_%d.mpg", i); 
         
         decode_video_frame(dcrs);
-        printf("%d\n", i);
         encode_video(enc);
 
-        //final video clip is generated after encoding
+        printf("%lu\n", output_video.size());
 
-        output = fopen(output_name, "wb");
-        fwrite(&output_video[0], 1, output_video.size(), output);
-        fclose(output);
+        //final video clip is generated after encoding
+        // try{
+        //     boost::system::error_code ignored_error;
+        //     boost::asio::write(socket, boost::asio::buffer(output_video),
+        //                     boost::asio::transfer_all(), ignored_error);
+        // }catch(std::exception& e) {
+        //     std::cerr << e.what() << std::endl;
+        // }
+
+        // boost::array<char, 1024> buf;
+        // boost::system::error_code error;
+        // size_t len = socket.read_some(boost::asio::buffer(buf), error);
+
+        printf("send video %d\n", i);
+
         output_video.clear();
         // break;
     }
