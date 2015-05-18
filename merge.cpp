@@ -29,6 +29,7 @@ extern "C" {
 #include <vector>
 #include <ctime>
 #include <string>
+#include <algorithm>    // std::min
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <GLUT/glut.h>
@@ -562,10 +563,33 @@ int listenForConnection(){
     return clientfd;
 }
 
+void send_file(uint8_t *data, int data_size, int clientfd){
+    char buf[MAXDATASIZE];
+    int pos = 0;
+    while(pos<data_size){
+        int len_to_copy = std::min(MAXDATASIZE, data_size - MAXDATASIZE);
+        // printf("%d\n", len_to_copy);
+        memcpy(buf, data+pos, len_to_copy);
+        if (send(clientfd, buf, len_to_copy, 0) == -1){
+            fprintf(stderr, "error in sending response content!\n");
+                exit(1);
+        }   
+        pos+=len_to_copy;
+    }
+}
+
+void recv_confm(int clientfd){
+    uint8_t buf[10];
+    int numbytes;
+    if((numbytes = recv(clientfd, buf, 9, 0))!=0){
+        buf[numbytes]='\n';
+        printf("received confirmation: %s\n", buf);
+    }else{
+        fprintf(stderr, "error receiving confirmation\n");
+    }
+}
 
 static void run_server(Decoder *dcrs, Encoder *enc){
-    FILE *output;    
-    char output_name[100];
     int clientfd = listenForConnection();
 
     //start processing video clips from 0 to 59
@@ -574,6 +598,7 @@ static void run_server(Decoder *dcrs, Encoder *enc){
             allocate_atx_and_frame_for_decoder(&dcrs[j]);
             allocate_atx_and_frame_for_encoder(enc, AV_CODEC_ID_MPEG1VIDEO);
         }
+        // printf("%d\n", i);
         sprintf(dcrs[0].filename, "clips/color0_%d.mpg", i);
         sprintf(dcrs[1].filename, "clips/depth0_%d.mpg", i);
         sprintf(dcrs[2].filename, "clips/color1_%d.mpg", i);
@@ -582,18 +607,24 @@ static void run_server(Decoder *dcrs, Encoder *enc){
         dcrs[1].f = fopen(dcrs[1].filename, "rb");
         dcrs[2].f = fopen(dcrs[2].filename, "rb");
         dcrs[3].f = fopen(dcrs[3].filename, "rb");
-        sprintf(output_name, "outputs/output_%d.mpg", i); 
         
+
         decode_video_frame(dcrs);
         encode_video(enc);
 
-        printf("%lu\n", output_video.size());
+        // printf("%d\n", i);
+        
 
+        // printf("%lu\n", output_video.size());
 
-        printf("send video %d\n", i);
+        send_file(&output_video[0], output_video.size(), clientfd);
+        printf("sent video %d\n", i);
+        recv_confm(clientfd);
 
         output_video.clear();
-        // break;
+
+
+    
     }
     // fclose(output);
 }

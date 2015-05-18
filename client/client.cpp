@@ -1,8 +1,6 @@
 
-// #include <boost/array.hpp>
-#include <boost/thread.hpp>
-// #include <boost/asio.hpp>
-#include <boost/date_time.hpp>
+#include <chrono>
+#include <thread>
 #include <vector>
 #include <iostream>
 #include <fstream>
@@ -30,15 +28,15 @@ typedef struct Buffer_t{
   pthread_cond_t cond;
 }Buffer;
 
-Buffer buf[2];
+Buffer buffer[2];
 
-void play_video_func(){
-  boost::posix_time::seconds workTime(1);
-  std::cout << "Play thread: playing video " << std::endl;
-  // Pretend to do something useful...
-  boost::this_thread::sleep(workTime);
-  std::cout << "Play thread: finished" << std::endl;
-}
+// void play_video_func(){
+//   boost::posix_time::seconds workTime(1);
+//   std::cout << "Play thread: playing video " << std::endl;
+//   // Pretend to do something useful...
+//   boost::this_thread::sleep(workTime);
+//   std::cout << "Play thread: finished" << std::endl;
+// }
 
 void flip(int &current){
   if(current==0){
@@ -48,22 +46,60 @@ void flip(int &current){
   }
 }
 
+void recv_file(int sockfd, int buf_num){
+  uint8_t buf[MAXDATASIZE];
+  int numbytes;
+  while((numbytes = recv(sockfd, buf, MAXDATASIZE, 0))!=0){
+    if(numbytes==-1){
+      perror("recv");
+        exit(1);
+    }   
+    // printf("%d\n", numbytes);
+    buffer[buf_num].data.insert(buffer[buf_num].data.end(), buf, buf+numbytes);   
+    if(buffer[buf_num].data.size()>=633850){
+      break;
+    }       
+  }
+  // printf("receive %lu bytes\n", buffer[buf_num].data.size());
+}
+
+void send_confm(int sockfd, int next_seq){
+  char buf[10];
+  sprintf(buf, "%d", next_seq);
+  send(sockfd, buf, strlen(buf), 0);
+}
+
 void* network_thread(void *ptr){
   int sockfd = *(int*)(ptr);
   int next = 0;
 
-
+  recv_file(sockfd, 0);
   return NULL;
 }
 
 void* display_thread(void *ptr){
   int next = 0;
-
   //there are 60 video clip to display (the client already knows this info)
   for(int i=0; i<60; i++){
 
   }
 
+  return NULL;
+}
+
+void* display_thread_no_buffer(void *ptr){
+  int sockfd = *(int*)(ptr);
+  int next = 0;
+  char output_name[100];
+
+  for(int i=0; i<60; i++){
+    recv_file(sockfd, 0);
+    printf("receive video %d\n", i);
+    
+    buffer[0].data.clear();
+    send_confm(sockfd, i+1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  }
   return NULL;
 }
 
@@ -138,25 +174,28 @@ int main(int argc, char* argv[])
 
   //init buffer:
   for(int i=0; i<2; i++){
-    buf[i].id = i;
-    buf[i].busy=false;
-    pthread_mutex_init(&buf[i].mutex, NULL);
-    pthread_cond_init(&buf[i].cond, NULL);
+    buffer[i].id = i;
+    buffer[i].busy=false;
+    pthread_mutex_init(&buffer[i].mutex, NULL);
+    pthread_cond_init(&buffer[i].cond, NULL);
   }
 
   int sockfd = connect_to_host(host, port);
   pthread_t network_t;
   pthread_t display_t;
 
-  pthread_create(&network_t, NULL, network_thread, (void*)(&sockfd));
-  pthread_create(&display_t, NULL, display_thread, NULL);
+  // pthread_create(&network_t, NULL, network_thread, (void*)(&sockfd));
+  // pthread_create(&display_t, NULL, display_thread, NULL);
 
-  pthread_join(network_t, NULL);
+  pthread_create(&display_t, NULL, display_thread_no_buffer, (void*)(&sockfd));
+
+
+  // pthread_join(network_t, NULL);
   pthread_join(display_t, NULL);
 
   for(int i=0; i<2; i++){
-    pthread_mutex_destroy(&buf[i].mutex);
-    pthread_cond_destroy(&buf[i].cond);
+    pthread_mutex_destroy(&buffer[i].mutex);
+    pthread_cond_destroy(&buffer[i].cond);
   }
 
   return 0;
