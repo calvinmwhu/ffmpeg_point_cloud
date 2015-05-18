@@ -47,19 +47,21 @@ void recv_file(int sockfd, int buf_num){
         exit(1);
     }  
     buffer[buf_num].data.insert(buffer[buf_num].data.end(), buf, buf+numbytes);   
-    if(numbytes<MAXDATASIZE){
-      break;
-    }
-    // if(buffer[buf_num].data.size()>=630000){
+    // if(numbytes<MAXDATASIZE){
     //   break;
-    // }       
+    // }
+    if(buffer[buf_num].data.size()>=630000){
+      break;
+    }       
   }
   // printf("receive %lu bytes\n", buffer[buf_num].data.size());
 }
 
 void send_confm(int sockfd, int next_seq){
   char buf[10];
+  memset(buf, 0, 10);
   sprintf(buf, "%d", next_seq);
+  // printf("%lu\n", strlen(buf));
   send(sockfd, buf, strlen(buf), 0);
 }
 

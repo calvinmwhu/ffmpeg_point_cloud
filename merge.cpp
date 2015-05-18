@@ -580,14 +580,13 @@ void send_file(uint8_t *data, int data_size, int clientfd){
         }   
         pos+=len_to_copy;
     }
-    sprintf(buf, "%s","END");
-    send(clientfd, buf, 3, 0);
 }
 
 void recv_confm(int clientfd){
     uint8_t buf[10];
     int numbytes;
     if((numbytes = recv(clientfd, buf, 9, 0))!=0){
+        printf("%d\n", numbytes);
         buf[numbytes]='\n';
         printf("received confirmation: %s\n", buf);
     }else{
