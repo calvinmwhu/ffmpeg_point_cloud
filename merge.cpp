@@ -589,18 +589,6 @@ static void run_server(Decoder *dcrs, Encoder *enc){
 
         printf("%lu\n", output_video.size());
 
-        //final video clip is generated after encoding
-        // try{
-        //     boost::system::error_code ignored_error;
-        //     boost::asio::write(socket, boost::asio::buffer(output_video),
-        //                     boost::asio::transfer_all(), ignored_error);
-        // }catch(std::exception& e) {
-        //     std::cerr << e.what() << std::endl;
-        // }
-
-        // boost::array<char, 1024> buf;
-        // boost::system::error_code error;
-        // size_t len = socket.read_some(boost::asio::buffer(buf), error);
 
         printf("send video %d\n", i);
 
