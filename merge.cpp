@@ -84,6 +84,7 @@ typedef struct Encoder_t{
     int number_frames;
     AVFrame *frame;
     AVPacket pkt;
+    int fps;
 }Encoder;
 
 
@@ -122,6 +123,8 @@ static void allocate_atx_and_frame_for_encoder(Encoder *enc, AVCodecID codec_id)
         exit(1);
     }
     enc->c->bit_rate = 400000;
+    // enc->c->bit_rate = 300000;
+
     /* resolution must be a multiple of two */
     enc->c->width = WIDTH;
     enc->c->height = HEIGHT;
@@ -176,8 +179,9 @@ static void init_decoder(Decoder *dcrs){
 }
 
 
-static void init_encoder(Encoder *enc, AVCodecID codec_id){
+static void init_encoder(Encoder *enc, AVCodecID codec_id, int fps){
     enc->codec = avcodec_find_encoder(codec_id);
+    enc->fps = fps;
     if (!enc->codec) {
         fprintf(stderr, "Codec not found\n");
         exit(1);
@@ -394,7 +398,7 @@ static void add_data_to_memory(uint8_t* data, int size){
 static void encode_video(Encoder *enc){
     uint8_t endcode[] = { 0, 0, 1, 0xb7};
     int ret, x,y, i,got_output;
-    for (i = 0; i < 25; i++) {
+    for (i = 0; i < enc->fps; i++) {
         av_init_packet(&enc->pkt);
         enc->pkt.data = NULL;    // packet data will be allocated by the encoder
         enc->pkt.size = 0;
@@ -576,6 +580,8 @@ void send_file(uint8_t *data, int data_size, int clientfd){
         }   
         pos+=len_to_copy;
     }
+    sprintf(buf, "%s","END");
+    send(clientfd, buf, 3, 0);
 }
 
 void recv_confm(int clientfd){
@@ -593,7 +599,7 @@ static void run_server(Decoder *dcrs, Encoder *enc){
     int clientfd = listenForConnection();
 
     //start processing video clips from 0 to 59
-    for(int i=0; i<60; i++){
+    for(int i=0; i<30; i++){
         for(int j=0; j<MAX_NUM_STREAM; j++){
             allocate_atx_and_frame_for_decoder(&dcrs[j]);
             allocate_atx_and_frame_for_encoder(enc, AV_CODEC_ID_MPEG1VIDEO);
@@ -613,14 +619,19 @@ static void run_server(Decoder *dcrs, Encoder *enc){
         encode_video(enc);
 
         // printf("%d\n", i);
-        
-
-        // printf("%lu\n", output_video.size());
+        printf("%lu\n", output_video.size());
 
         send_file(&output_video[0], output_video.size(), clientfd);
         printf("sent video %d\n", i);
         recv_confm(clientfd);
 
+
+        // FILE *pFile;
+        // pFile = fopen("output_20.mpg", "wb");
+        // fwrite(&output_video[0], sizeof(uint8_t), output_video.size(), pFile);
+        // fclose(pFile);
+
+        // break;
         output_video.clear();
 
 
@@ -649,7 +660,7 @@ int main(int argc, char **argv)
     Decoder *dcrs = (Decoder*)malloc(MAX_NUM_STREAM*sizeof(Decoder));
     init_decoder(dcrs);
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
-    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO);
+    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, 20);
 
     run_server(dcrs, enc);
 

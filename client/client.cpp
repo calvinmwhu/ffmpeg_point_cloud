@@ -30,14 +30,6 @@ typedef struct Buffer_t{
 
 Buffer buffer[2];
 
-// void play_video_func(){
-//   boost::posix_time::seconds workTime(1);
-//   std::cout << "Play thread: playing video " << std::endl;
-//   // Pretend to do something useful...
-//   boost::this_thread::sleep(workTime);
-//   std::cout << "Play thread: finished" << std::endl;
-// }
-
 void flip(int &current){
   if(current==0){
     current=1;
@@ -53,12 +45,15 @@ void recv_file(int sockfd, int buf_num){
     if(numbytes==-1){
       perror("recv");
         exit(1);
-    }   
-    // printf("%d\n", numbytes);
-    buffer[buf_num].data.insert(buffer[buf_num].data.end(), buf, buf+numbytes);   
-    if(buffer[buf_num].data.size()>=633850){
+    }  
+    if(numbytes==3){
       break;
-    }       
+    } else{
+      buffer[buf_num].data.insert(buffer[buf_num].data.end(), buf, buf+numbytes);   
+    }    
+    // if(buffer[buf_num].data.size()>=100000){
+    //   break;
+    // }       
   }
   // printf("receive %lu bytes\n", buffer[buf_num].data.size());
 }
@@ -72,6 +67,11 @@ void send_confm(int sockfd, int next_seq){
 void* network_thread(void *ptr){
   int sockfd = *(int*)(ptr);
   int next = 0;
+
+  pthread_mutex_lock(&buffer[next].mutex);
+
+  pthread_mutex_unlock(&buffer[next].mutex);
+
 
   recv_file(sockfd, 0);
   return NULL;
@@ -92,7 +92,7 @@ void* display_thread_no_buffer(void *ptr){
   int next = 0;
   char output_name[100];
 
-  for(int i=0; i<60; i++){
+  for(int i=0; i<30; i++){
     recv_file(sockfd, 0);
     printf("receive video %d\n", i);
     
