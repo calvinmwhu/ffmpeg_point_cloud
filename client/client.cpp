@@ -16,7 +16,7 @@
 #include <arpa/inet.h>
 
 
-const int MAXDATASIZE = 1024;
+const int MAXDATASIZE = 1000;
 typedef std::vector<uint8_t> buffer_type;
 
 
@@ -46,12 +46,11 @@ void recv_file(int sockfd, int buf_num){
       perror("recv");
         exit(1);
     }  
-    if(numbytes==3){
+    buffer[buf_num].data.insert(buffer[buf_num].data.end(), buf, buf+numbytes);   
+    if(numbytes<MAXDATASIZE){
       break;
-    } else{
-      buffer[buf_num].data.insert(buffer[buf_num].data.end(), buf, buf+numbytes);   
-    }    
-    // if(buffer[buf_num].data.size()>=100000){
+    }
+    // if(buffer[buf_num].data.size()>=630000){
     //   break;
     // }       
   }
@@ -68,12 +67,16 @@ void* network_thread(void *ptr){
   int sockfd = *(int*)(ptr);
   int next = 0;
 
-  pthread_mutex_lock(&buffer[next].mutex);
-
-  pthread_mutex_unlock(&buffer[next].mutex);
-
-
-  recv_file(sockfd, 0);
+  for(int i=0; i<30; i++){
+    pthread_mutex_lock(&buffer[next].mutex);
+    while(buffer[next].busy){
+      pthread_cond_wait(&buffer[next].cond, &buffer[next].mutex);
+    }
+    recv_file(sockfd, 0);
+    pthread_mutex_unlock(&buffer[next].mutex);
+    flip(next);
+    send_confm(sockfd, i+1);
+  }
   return NULL;
 }
 
@@ -157,7 +160,6 @@ int connect_to_host(char *hostname, char *port){
   freeaddrinfo(servinfo); // all done with this structure
 
   return sockfd;
-
 }
 
 int main(int argc, char* argv[])

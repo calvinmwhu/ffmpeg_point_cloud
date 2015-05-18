@@ -625,7 +625,6 @@ static void run_server(Decoder *dcrs, Encoder *enc){
         printf("sent video %d\n", i);
         recv_confm(clientfd);
 
-
         // FILE *pFile;
         // pFile = fopen("output_20.mpg", "wb");
         // fwrite(&output_video[0], sizeof(uint8_t), output_video.size(), pFile);
@@ -660,7 +659,7 @@ int main(int argc, char **argv)
     Decoder *dcrs = (Decoder*)malloc(MAX_NUM_STREAM*sizeof(Decoder));
     init_decoder(dcrs);
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
-    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, 20);
+    init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, 25);
 
     run_server(dcrs, enc);
 
