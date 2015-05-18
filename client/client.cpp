@@ -21,7 +21,6 @@ typedef std::vector<uint8_t> buffer_type;
 
 
 typedef struct Buffer_t{
-  bool busy;
   int id;
   buffer_type data;
   pthread_mutex_t mutex;
@@ -50,7 +49,7 @@ void recv_file(int sockfd, int buf_num){
     // if(numbytes<MAXDATASIZE){
     //   break;
     // }
-    if(buffer[buf_num].data.size()>=630000){
+    if(buffer[buf_num].data.size()>=600000){
       break;
     }       
   }
@@ -71,24 +70,36 @@ void* network_thread(void *ptr){
 
   for(int i=0; i<30; i++){
     pthread_mutex_lock(&buffer[next].mutex);
-    while(buffer[next].busy){
+    while(buffer[next].data.size()!=0){
       pthread_cond_wait(&buffer[next].cond, &buffer[next].mutex);
     }
-    recv_file(sockfd, 0);
+    recv_file(sockfd, next);
+    printf("receiving video %d on buffer %d\n", i, next);
+
+    pthread_cond_signal(&buffer[next].cond);
     pthread_mutex_unlock(&buffer[next].mutex);
+    // send_confm(sockfd, i+1);
     flip(next);
-    send_confm(sockfd, i+1);
   }
   return NULL;
 }
 
 void* display_thread(void *ptr){
   int next = 0;
-  //there are 60 video clip to display (the client already knows this info)
-  for(int i=0; i<60; i++){
-
+  //there are 30 video clip to display (the client already knows this info)
+  for(int i=0; i<30; i++){
+    pthread_mutex_lock(&buffer[next].mutex);
+    while(buffer[next].data.size()==0){
+      pthread_cond_wait(&buffer[next].cond, &buffer[next].mutex);
+    }
+    // printf("in display_thread consuming file\n");
+    printf("playing video %d on buffer %d\n", i, next);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    buffer[next].data.clear();
+    pthread_cond_signal(&buffer[next].cond);
+    pthread_mutex_unlock(&buffer[next].mutex);
+    flip(next);
   }
-
   return NULL;
 }
 
@@ -179,7 +190,6 @@ int main(int argc, char* argv[])
   //init buffer:
   for(int i=0; i<2; i++){
     buffer[i].id = i;
-    buffer[i].busy=false;
     pthread_mutex_init(&buffer[i].mutex, NULL);
     pthread_cond_init(&buffer[i].cond, NULL);
   }
@@ -188,13 +198,12 @@ int main(int argc, char* argv[])
   pthread_t network_t;
   pthread_t display_t;
 
-  // pthread_create(&network_t, NULL, network_thread, (void*)(&sockfd));
-  // pthread_create(&display_t, NULL, display_thread, NULL);
+  pthread_create(&network_t, NULL, network_thread, (void*)(&sockfd));
+  pthread_create(&display_t, NULL, display_thread, NULL);
 
-  pthread_create(&display_t, NULL, display_thread_no_buffer, (void*)(&sockfd));
+  // pthread_create(&display_t, NULL, display_thread_no_buffer, (void*)(&sockfd));
 
-
-  // pthread_join(network_t, NULL);
+  pthread_join(network_t, NULL);
   pthread_join(display_t, NULL);
 
   for(int i=0; i<2; i++){

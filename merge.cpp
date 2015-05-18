@@ -13,6 +13,7 @@ extern "C" {
     #include <netdb.h>
     #include <arpa/inet.h>
     #include <sys/wait.h>
+    #include <sys/time.h>
     #include <signal.h>
     #include <pthread.h>
     #include <libavutil/opt.h>
@@ -586,9 +587,9 @@ void recv_confm(int clientfd){
     uint8_t buf[10];
     int numbytes;
     if((numbytes = recv(clientfd, buf, 9, 0))!=0){
-        printf("%d\n", numbytes);
+        // printf("%d\n", numbytes);
         buf[numbytes]='\n';
-        printf("received confirmation: %s\n", buf);
+        // printf("received confirmation: %s\n", buf);
     }else{
         fprintf(stderr, "error receiving confirmation\n");
     }
@@ -613,16 +614,26 @@ static void run_server(Decoder *dcrs, Encoder *enc){
         dcrs[2].f = fopen(dcrs[2].filename, "rb");
         dcrs[3].f = fopen(dcrs[3].filename, "rb");
         
+        struct timeval * pre = new struct timeval;
+        struct timeval * now = new struct timeval;
 
+        gettimeofday(pre, NULL);
         decode_video_frame(dcrs);
         encode_video(enc);
+        gettimeofday(now, NULL);
+
+        long mili = (now->tv_sec - pre->tv_sec)*1000+(now->tv_usec-pre->tv_usec)/1000;
+
+        printf("%ld\n", mili);
+
+
 
         // printf("%d\n", i);
-        printf("%lu\n", output_video.size());
+        // printf("%lu\n", output_video.size());
 
         send_file(&output_video[0], output_video.size(), clientfd);
-        printf("sent video %d\n", i);
-        recv_confm(clientfd);
+        // printf("sent video %d\n", i);
+        // recv_confm(clientfd);
 
         // FILE *pFile;
         // pFile = fopen("output_20.mpg", "wb");
