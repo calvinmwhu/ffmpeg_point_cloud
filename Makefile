@@ -1,13 +1,16 @@
-CC = gcc
+CC = g++ -std=c++11
 LIB = -lavcodec -lavformat -lavfilter -lavutil -lswresample -lswscale -framework GLUT -framework OpenGL -framework Cocoa
 FLAG = -c -Wno-deprecated
+CFLAG = -I/usr/local/Cellar/boost/1.57.0/include
+LIBFLAG = -L/usr/local/Cellar/boost/1.57.0/lib  
+
 all: merge
 
 merge: merge.o
-	$(CC) merge.o -o merge $(LIB)
+	$(CC) $(LIB) merge.o -o merge 
 
-merge.o: merge.c
-	$(CC) $(FLAG) merge.c
+merge.o: merge.cpp
+	$(CC) $(FLAG) merge.cpp
 
 clean:
-	rm -rf *.o merge output.mpg
+	rm -rf *.o merge outputs/*

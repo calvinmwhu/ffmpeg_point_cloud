@@ -1,7 +1,9 @@
 *.webm
 opengl
 temp
+output*
 *.mpg
 result
 merge.o
 merge
+.DS_Store
