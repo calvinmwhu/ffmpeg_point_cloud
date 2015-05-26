@@ -14,3 +14,6 @@ merge.o: merge.cpp
 
 clean:
 	rm -rf *.o merge outputs/*
+
+
+	
