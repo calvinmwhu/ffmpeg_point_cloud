@@ -53,7 +53,7 @@ void recv_file(int sockfd, int buf_num){
       break;
     }       
   }
-  // printf("receive %lu bytes\n", buffer[buf_num].data.size());
+  printf("receive %lu bytes\n", buffer[buf_num].data.size());
 }
 
 void send_confm(int sockfd, int next_seq){
@@ -180,7 +180,7 @@ int main(int argc, char* argv[])
   char host[100];
   char port[100];
   if(argc!=3){
-    sprintf(host, "%s", "10.0.0.9");
+    sprintf(host, "%s", "192.168.0.101");
     sprintf(port, "%s", "8000"); 
   }else{
     sprintf(host, "%s", argv[1]);
