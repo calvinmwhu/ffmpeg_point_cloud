@@ -605,10 +605,10 @@ static void run_server(Decoder *dcrs, Encoder *enc){
             allocate_atx_and_frame_for_encoder(enc, AV_CODEC_ID_MPEG1VIDEO);
         }
         // printf("%d\n", i);
-        sprintf(dcrs[0].filename, "clips/color0_%d.mpg", i);
-        sprintf(dcrs[1].filename, "clips/depth0_%d.mpg", i);
-        sprintf(dcrs[2].filename, "clips/color1_%d.mpg", i);
-        sprintf(dcrs[3].filename, "clips/depth1_%d.mpg", i);       
+        sprintf(dcrs[0].filename, "clips_mpg/color0_%d.mpg", i);
+        sprintf(dcrs[1].filename, "clips_mpg/depth0_%d.mpg", i);
+        sprintf(dcrs[2].filename, "clips_mpg/color1_%d.mpg", i);
+        sprintf(dcrs[3].filename, "clips_mpg/depth1_%d.mpg", i);       
         dcrs[0].f = fopen(dcrs[0].filename, "rb");
         dcrs[1].f = fopen(dcrs[1].filename, "rb");
         dcrs[2].f = fopen(dcrs[2].filename, "rb");
@@ -670,6 +670,7 @@ int main(int argc, char **argv)
     init_decoder(dcrs);
     Encoder *enc = (Encoder*)malloc(sizeof(Encoder));
     init_encoder(enc, AV_CODEC_ID_MPEG1VIDEO, 25);
+    // init_encoder(enc, AV_CODEC_ID_H264, 25);
 
     run_server(dcrs, enc);
 
